@@ -22,7 +22,7 @@ catalog:
   globals: ^17.13.0
   hono: ^4.13.13
   prettier: ^3.9.10
-  react: ^19.3.0
+  react: ^19.3.1
   react-dom: ^19.3.0
   turbo: ^2.11.8
   typescript: ^6.0.3

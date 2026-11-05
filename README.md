@@ -87,9 +87,10 @@ Worker, snapshot, browser, or repository.
    ```
 
 2. If you created a new namespace, replace its ID in
-   `apps/worker/wrangler.jsonc` with the returned ID. The config already
-   declares the `workforce.shazhou.work` custom domain and Worker name
-   `workforce`. The domain's zone must be in your Cloudflare account.
+   `apps/worker/wrangler.jsonc` with the returned ID. The config declares Worker
+   name `workforce`, but intentionally omits `routes`: routine deployments do
+   not manage domain bindings. `workers_dev: false` keeps the workers.dev
+   endpoint disabled even without routes in the config.
 3. For an initial local bootstrap, collect data as above and publish the
    snapshot. Subsequent CI deployments use release tags as described below:
 
@@ -99,8 +100,14 @@ Worker, snapshot, browser, or repository.
    pnpm run deploy
    ```
 
-   Custom-domain deployment creates the Cloudflare routing and certificate.
-   Inspect any existing hostname configuration before approving replacement.
+   For a new environment only, open the Cloudflare dashboard after deploying:
+   Workers & Pages -> workforce -> Settings -> Domains & Routes -> Add -> Custom
+   Domain, and bind `workforce.shazhou.work`. The domain's zone must be in that
+   account. Inspect any existing hostname configuration before approving
+   replacement. This one-time setup creates routing and the certificate; the
+   existing production binding does not need to be recreated. Subsequent
+   deployments preserve that binding without calling the custom domain
+   management API.
 
 4. Configure these GitHub `production` environment secrets:
 
@@ -119,13 +126,13 @@ Worker, snapshot, browser, or repository.
    the current
    [Workers roles and permissions](https://developers.cloudflare.com/workers/authorization/workers/).
    Deploying with an existing KV binding does not require KV permissions.
-   Changing Routes or Custom Domains additionally requires Workers Routes Write
-   for the affected zone; deploying without connection changes needs only Editor
-   for that Worker.
+   Routine releases need no Zone Read or Workers Routes Write permissions: they
+   update the Worker and assets, not Routes or Custom Domains. Domain setup or
+   changes are performed separately by an authorized operator in the Cloudflare
+   dashboard.
 
-   Restrict account resources to the deployment account. If changing domain
-   connections, restrict additional zone permissions to `shazhou.work`. This app
-   uses
+   Restrict account resources to the deployment account. Do not add zone
+   permissions to the routine deployment token. This app uses
    [Custom Domains](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/),
    rather than manually managed DNS records. No DNS Edit, Pages, D1, R2, or
    Global API Key is needed. Avoid a fixed IP restriction for GitHub-hosted

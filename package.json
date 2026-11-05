@@ -1,24 +1,23 @@
 {
-  "name": "preset-cloudflare-fullstack",
+  "name": "workforce",
   "version": "0.0.0",
-  "description": "A Cloudflare fullstack preset with React, Hono, and multi-provider OAuth.",
+  "description": "Read-only public GitHub activity dashboard on Cloudflare.",
   "keywords": [
     "typescript",
     "cloudflare",
     "workers",
     "react",
     "hono",
-    "oauth",
-    "preset",
-    "template"
+    "github",
+    "dashboard"
   ],
-  "homepage": "https://github.com/shazhou-ww/preset-cloudflare-fullstack#readme",
+  "homepage": "https://workforce.shazhou.work",
   "bugs": {
-    "url": "https://github.com/shazhou-ww/preset-cloudflare-fullstack/issues"
+    "url": "https://github.com/shazhou-ww/workforce.shazhou.work/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/shazhou-ww/preset-cloudflare-fullstack.git"
+    "url": "git+https://github.com/shazhou-ww/workforce.shazhou.work.git"
   },
   "license": "MIT",
   "private": true,
@@ -29,9 +28,10 @@
   "packageManager": "pnpm@11.22.0",
   "scripts": {
     "build": "turbo run build",
+    "collect": "pnpm --filter @workspace/contracts build && node apps/worker/scripts/collect.ts",
     "check": "pnpm format:check && turbo run lint typecheck test build",
     "clean": "turbo run clean && node -e \"require('node:fs').rmSync('.turbo', { recursive: true, force: true })\"",
-    "deploy": "pnpm build && pnpm --filter @workspace/worker deploy",
+    "deploy": "pnpm build && pnpm --filter @workspace/worker run deploy",
     "dev": "pnpm --filter @workspace/web build && turbo run dev",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

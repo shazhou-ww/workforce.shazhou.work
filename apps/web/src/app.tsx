@@ -1,4 +1,4 @@
-import type { BootstrapResponse, SessionResponse } from "@workspace/contracts";
+import type { ActivitySnapshot } from "@workspace/contracts";
 import { useEffect, useState } from "react";
 
 import { Dashboard, type DashboardState } from "./ui.js";
@@ -8,44 +8,46 @@ export function App() {
 
   useEffect(() => {
     const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
 
-    void loadDashboard(controller.signal)
-      .then(({ bootstrap, session }) => {
-        setState({
-          kind: "ready",
-          bootstrap,
-          session,
-        });
-      })
-      .catch((error: unknown) => {
-        if (error instanceof DOMException && error.name === "AbortError") {
-          return;
-        }
+    const refresh = () => {
+      void loadDashboard(controller.signal)
+        .then((snapshot) => {
+          if (controller.signal.aborted) return;
+          setState({
+            kind: "ready",
+            snapshot,
+          });
+        })
+        .catch((error: unknown) => {
+          if (controller.signal.aborted) {
+            return;
+          }
 
-        setState({
-          kind: "error",
-          message: error instanceof Error ? error.message : String(error),
+          setState({
+            kind: "error",
+            message: error instanceof Error ? error.message : String(error),
+          });
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) {
+            timer = setTimeout(refresh, 5 * 60 * 1000);
+          }
         });
-      });
+    };
+    refresh();
 
     return () => {
       controller.abort();
+      clearTimeout(timer);
     };
   }, []);
 
   return <Dashboard state={state} />;
 }
 
-async function loadDashboard(signal: AbortSignal): Promise<{
-  readonly bootstrap: BootstrapResponse;
-  readonly session: SessionResponse | null;
-}> {
-  const [bootstrap, session] = await Promise.all([
-    fetchJson<BootstrapResponse>("/api/bootstrap", signal),
-    fetchJson<SessionResponse | null>("/api/auth/session", signal),
-  ]);
-
-  return { bootstrap, session };
+async function loadDashboard(signal: AbortSignal): Promise<ActivitySnapshot> {
+  return fetchJson<ActivitySnapshot>("/api/activity", signal);
 }
 
 async function fetchJson<T>(path: string, signal: AbortSignal): Promise<T> {
@@ -57,6 +59,10 @@ async function fetchJson<T>(path: string, signal: AbortSignal): Promise<T> {
   });
 
   if (!response.ok) {
+    const body = (await response.json()) as { error?: string };
+    if (body.error) {
+      throw new Error(body.error);
+    }
     throw new Error(`${path} returned HTTP ${response.status}`);
   }
 

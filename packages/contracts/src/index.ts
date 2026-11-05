@@ -1,3 +1,5 @@
+export * from "./activity.js";
+
 export const authProviderIds = [
   "github",
   "google",

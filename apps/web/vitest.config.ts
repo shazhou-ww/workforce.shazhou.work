@@ -5,7 +5,7 @@ export default defineConfig({
   plugins: [react()],
   test: {
     coverage: {
-      include: ["src/ui.tsx"],
+      include: ["src/ui.tsx", "src/app.tsx"],
       provider: "v8",
       reporter: ["text", "json", "html"],
       thresholds: {
@@ -15,7 +15,7 @@ export default defineConfig({
         statements: 90,
       },
     },
-    environment: "node",
+    environment: "happy-dom",
     include: ["test/**/*.test.tsx"],
   },
 });

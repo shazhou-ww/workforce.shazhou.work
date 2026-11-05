@@ -1,172 +1,179 @@
-# Cloudflare fullstack preset
+# Workforce
 
-A production-shaped Cloudflare starter with a React interface, a Hono Worker,
-same-origin static assets, and Auth.js sign-in through GitHub, Google, and
-Microsoft Entra ID.
+Read-only GitHub activity dashboard for **workforce.shazhou.work**, derived with
+git-lineage from
+[preset-cloudflare-fullstack](https://github.com/shazhou-ww/preset-cloudflare-fullstack).
+React/Vite supplies the interface, a Hono Cloudflare Worker supplies the API,
+and Workers KV stores the latest complete snapshot. No deployment or push is
+needed for local development.
 
-The included **Signal Desk** interface is intentionally concrete enough to
-exercise authentication and deployment. Replace its name and visual language
-when deriving a product.
+## What is counted
 
-## Derive a repository
+- Accounts: `shazhou-ww` by default; configure a comma-separated
+  `GITHUB_ACCOUNTS` environment variable or GitHub repository variable.
+- Projects mean **owned public repositories**, not GitHub Projects boards. Both
+  user and organization accounts are supported. Private repositories are
+  excluded even if the collection token can access them.
+- Last **30 Beijing calendar days**, including the partial current day. History
+  is fixed to a single collection cutoff, using GitHub's committed timestamp
+  rather than author date or push date.
+- All authors on each repository's **default branch**, including merge commits,
+  archived repositories, forks, and inherited history. A SHA is counted once per
+  repository, but can count again in another repository.
+- Lines changed = GitHub commit **additions + deletions**. Average = total lines
+  changed / commit count, not the average of repository or daily averages. Zero
+  commits means zero average. Binary changes have no code-line equivalent.
+- The project list shows the latest default-branch commit even when it falls
+  outside the 30-day window. This is repository activity, **not personal
+  productivity** or a measure of code quality.
 
-```sh
-git-lineage derive \
-  https://github.com/shazhou-ww/preset-cloudflare-fullstack.git \
-  my-service \
-  --branch main
-cd my-service
-pnpm install
-```
+The chart selects a day and updates the totals and repository statistics. Search
+filters the repository list only, not the global chart or totals. The browser
+re-reads the snapshot every five minutes. Data older than three hours is visibly
+marked stale.
 
-This preset derives from
-[`preset-pnpm-monorepo`](https://github.com/shazhou-ww/preset-pnpm-monorepo).
-Its `.git-lineage.yaml` tracks that immediate parent. Run `git-lineage update`
-to merge later monorepo baseline changes. This preset documents its own
-capabilities and does not enumerate descendants.
+## Local development (PowerShell)
 
-## Architecture
+Use Node.js 24.11.1+ and pnpm 11.22+:
 
-```text
-apps/
-  web/          React + Vite interface
-  worker/       Hono API, Auth.js, static asset deployment
-packages/
-  contracts/    request and response contracts shared by both apps
-```
+```powershell
+pnpm install --frozen-lockfile
+# Uses your existing GitHub CLI login; never print or commit this token.
+$env:GH_TOKEN = gh auth token
+pnpm collect
+Remove-Item Env:GH_TOKEN
 
-Cloudflare serves `apps/web/dist` as static assets. Requests under `/api/*` run
-the Worker first. Every other unknown route falls back to `index.html`, so
-client-side routes remain deployable without a second service.
-
-The Worker package declares the web package as a workspace dependency. This is
-deployment topology rather than a runtime import: Turborepo builds web assets
-before validating or deploying the Worker.
-
-## Local development
-
-Create the local secret file:
-
-```sh
-cp apps/worker/.dev.vars.example apps/worker/.dev.vars
-```
-
-Generate `AUTH_SECRET` with a cryptographically secure random value:
-
-```sh
-openssl rand -base64 32
-```
-
-Then run:
-
-```sh
+# Local KV only. Does not write to Cloudflare.
+pnpm --filter @workspace/worker exec wrangler kv key put activity:v1 --binding STATS --path ..\..\.data\snapshot.json --local
 pnpm dev
 ```
 
-- React development server: `http://localhost:5173`
-- Worker development server: `http://localhost:8787`
-- Vite proxies `/api/*` to the Worker.
+Open `http://localhost:5173`. Vite proxies `/api/*` to the Worker on port 8787.
+Local KV persists under the Worker's ignored `.wrangler` directory. Generated
+snapshots are ignored under `.data`.
 
-`AUTH_URL` in `.dev.vars.example` points to the proxied browser origin. This
-keeps OAuth callbacks and session cookies on `localhost:5173`.
+The public dashboard does not require OAuth secrets or sign-in. The template's
+OAuth APIs remain available, with `/api/me` still protected. To use them, copy
+`apps/worker/.dev.vars.example` to `.dev.vars`, generate a real `AUTH_SECRET`,
+and configure the desired providers and callback URLs as described in the
+template. Do not configure providers for the read-only public dashboard.
 
-## Identity providers
+## Collection
 
-At least one provider needs credentials. Providers without both an ID and secret
-are omitted from the interface rather than exposed as broken actions.
+`pnpm collect` enumerates **all repository pages**, then uses paginated GitHub
+GraphQL history to read commit additions/deletions without one REST request per
+commit. Pagination is pinned to each repository's initial head SHA so pushes
+during collection cannot shift pages. It needs `GH_TOKEN`; a token that can read
+public repositories and call GraphQL is sufficient. There is no need to grant
+private-repository permissions.
 
-### GitHub
+Collection fails explicitly on HTTP errors, GraphQL errors, missing/private
+repositories, network failures, or invalid pagination. It writes the output only
+when the entire collection succeeds. The publication workflow stops on failure,
+preserving the previous complete KV value. No GitHub token is stored in the
+Worker, snapshot, browser, or repository.
 
-Create an OAuth App and use:
+## Deployment
 
-```text
-Homepage URL: http://localhost:5173
-Authorization callback URL:
-http://localhost:5173/api/auth/callback/github
-```
+1. Create a KV namespace:
 
-Set `AUTH_GITHUB_ID` and `AUTH_GITHUB_SECRET`.
+   ```powershell
+   pnpm --filter @workspace/worker exec wrangler kv namespace create STATS
+   ```
 
-### Google
+2. Replace the all-zero placeholder ID in `apps/worker/wrangler.jsonc` with the
+   returned ID. Do not deploy the placeholder. The config already declares the
+   `workforce.shazhou.work` custom domain and Worker name `workforce`. The
+   domain's zone must be in your Cloudflare account.
+3. Collect data as above and publish the snapshot:
 
-Create an OAuth 2.0 Web application with:
+   ```powershell
+   pnpm --filter @workspace/worker exec wrangler kv key put activity:v1 --binding STATS --path ..\..\.data\snapshot.json --remote
+   pnpm check
+   pnpm run deploy
+   ```
 
-```text
-Authorized JavaScript origin: http://localhost:5173
-Authorized redirect URI:
-http://localhost:5173/api/auth/callback/google
-```
+   Custom-domain deployment creates the Cloudflare routing and certificate.
+   Inspect any existing hostname configuration before approving replacement.
 
-Set `AUTH_GOOGLE_ID` and `AUTH_GOOGLE_SECRET`.
+4. Configure the GitHub `production` environment with secrets
+   `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`. Create a custom
+   Cloudflare API token with these permissions:
 
-### Microsoft Entra ID
+   | Scope   | Permission         | Access |
+   | ------- | ------------------ | ------ |
+   | Account | Workers Scripts    | Edit   |
+   | Account | Workers KV Storage | Edit   |
+   | Zone    | Zone               | Read   |
 
-Create a Web platform redirect URI:
+   Restrict account resources to the deployment account and zone resources to
+   `shazhou.work`. The same token supports Worker deployment and KV collection.
+   This app uses
+   [Custom Domains](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/),
+   whose
+   [attachment API](https://developers.cloudflare.com/api/resources/workers/subresources/domains/methods/update/)
+   accepts Workers Scripts Write; it does not need DNS Edit or classic Workers
+   Routes Edit. No Pages, D1, R2, or Global API Key is needed. Avoid a fixed IP
+   restriction for GitHub-hosted runners unless using controlled egress. Keep
+   the token only in Actions secrets, never in code or chat.
 
-```text
-http://localhost:5173/api/auth/callback/microsoft-entra-id
-```
+5. After pushing the project, manually run **Collect public GitHub activity** to
+   verify that the Actions token can collect and the Cloudflare token can
+   publish. Set repository variable `WORKFORCE_SYNC_ENABLED=true` to enable the
+   hourly schedule (minute 17, UTC; GitHub may delay scheduled jobs). Manual
+   dispatch always attempts collection.
+6. Deploy by pushing a release tag, **not** by pushing `main` or manually
+   dispatching the deployment workflow:
 
-Set `AUTH_MICROSOFT_ENTRA_ID_ID`, `AUTH_MICROSOFT_ENTRA_ID_SECRET`, and
-optionally `AUTH_MICROSOFT_ENTRA_ID_ISSUER`. The example issuer accepts accounts
-from any Entra tenant. Replace `common` with a tenant ID for a single-tenant
-app.
+   ```powershell
+   git tag -a Release-261105-1 -m "Release 2026-11-05 #1"
+   git push origin Release-261105-1
+   ```
 
-Use the production origin in every provider console before deployment.
+   Tags use `Release-YYMMDD-INDEX`: the release date and that day's release
+   sequence, starting at `1`, without leading zeros. For example, the next
+   release on 2026-11-05 is `Release-261105-2`. Choose the next unused sequence
+   manually; do not move or reuse published tags. The workflow validates the
+   name and calendar date before building and deploying the tagged commit.
+   Malformed `Release-*` tags fail validation without deploying.
+   `CLOUDFLARE_DEPLOY_ENABLED` is no longer used. If the `production`
+   environment restricts deployment refs, allow `Release-*` tags. Scheduled data
+   collection remains independently disabled until
+   `WORKFORCE_SYNC_ENABLED=true`; its workflow must be on the default branch for
+   schedules to run.
 
-## Worker secrets
+GitHub Actions' automatic token is used for public API collection. If your
+organization's policy disallows public cross-repository GraphQL reads, provide
+an appropriately scoped Actions secret and use it for the workflow's `GH_TOKEN`.
+Check failed runs instead of treating an old snapshot as current. Public
+repository descriptions and commit subjects are intentionally exposed on the
+public dashboard; do not extend collection to private data without access
+control.
 
-Set production values from the Worker workspace:
+## API
 
-```sh
-pnpm --filter @workspace/worker exec wrangler secret put AUTH_SECRET
-pnpm --filter @workspace/worker exec wrangler secret put AUTH_URL
-pnpm --filter @workspace/worker exec wrangler secret put AUTH_GITHUB_ID
-pnpm --filter @workspace/worker exec wrangler secret put AUTH_GITHUB_SECRET
-```
+- `GET /api/activity`: typed `ActivitySnapshot`, with 30 zero-filled daily
+  buckets, weighted totals, repository metadata, and per-repository daily data.
+  Cached publicly for 60 seconds; KV publication is eventually consistent.
+- Before the first snapshot: **503** with setup guidance, not fake zero metrics.
+- KV failures: logged server-side and returned as **500** with a safe message.
+- `GET /api/health`: Worker liveness only; it does not assert data freshness.
 
-Repeat the last two commands for Google or Microsoft variables. `AUTH_URL` must
-be the full production auth base, for example:
+## Commands and lineage
 
-```text
-https://example.com/api/auth
-```
+| Command              | Purpose                                                             |
+| -------------------- | ------------------------------------------------------------------- |
+| `pnpm collect`       | Collect public GitHub data to an ignored local snapshot             |
+| `pnpm dev`           | Run Vite and the local Worker                                       |
+| `pnpm check`         | Format, lint, type-check, tests with 90% coverage thresholds, build |
+| `pnpm build`         | Build shared contracts, web assets, and dry-run the Worker          |
+| `pnpm run deploy`    | Build and deploy the Worker and assets (explicit opt-in)            |
+| `git-lineage update` | Merge updates from the immediate fullstack template                 |
 
-Never commit `.dev.vars`; only `.dev.vars.example` belongs in Git.
-
-## Commands
-
-| Command       | Purpose                                                      |
-| ------------- | ------------------------------------------------------------ |
-| `pnpm dev`    | Build initial assets, then run Vite and Wrangler             |
-| `pnpm check`  | Format, lint, type-check, test, and dry-run the Worker build |
-| `pnpm build`  | Build the contracts, web assets, and Worker bundle           |
-| `pnpm deploy` | Validate everything and deploy the Worker plus assets        |
-| `pnpm clean`  | Remove all generated outputs                                 |
-
-## Continuous deployment
-
-The deploy workflow is safe to inherit because push deployment is disabled by
-default. Configure the `production` GitHub environment with:
-
-- `CLOUDFLARE_ACCOUNT_ID`
-- `CLOUDFLARE_API_TOKEN`
-
-Set the repository variable `CLOUDFLARE_DEPLOY_ENABLED=true` to deploy every
-push to `main`. A manual workflow dispatch always attempts a deployment.
-
-Use a narrowly scoped Cloudflare token that can edit Workers scripts for the
-target account.
-
-## Before shipping a derived app
-
-1. Change the package and repository metadata.
-2. Change the Worker name and compatibility date in
-   `apps/worker/wrangler.jsonc`.
-3. Replace Signal Desk content, metadata, and branding.
-4. Configure production callback URLs and secrets.
-5. Review the protected API routes and add application authorization.
-6. Enable the deployment workflow only after its environment is configured.
+The immediate parent is recorded in `.git-lineage.yaml`. Its source commit is
+`48a07c6882f347f736a16f1d69b9e9922ae08111`; the verified derivation birth commit
+is `8973dcea1e5b30ed1202a99c95547f094406ac7d`. Child work stays in this
+repository.
 
 ## License
 

@@ -4,6 +4,7 @@ node_modules/
 *.tgz
 .turbo/
 .wrangler/
+.data/
 .dev.vars
 .dev.vars.*
 !.dev.vars.example

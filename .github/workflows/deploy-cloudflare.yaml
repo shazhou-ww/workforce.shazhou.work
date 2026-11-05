@@ -2,9 +2,8 @@ name: Deploy to Cloudflare
 
 on:
   push:
-    branches:
-      - main
-  workflow_dispatch:
+    tags:
+      - "Release-*"
 
 permissions:
   contents: read
@@ -16,14 +15,30 @@ concurrency:
 jobs:
   deploy:
     name: Deploy production Worker
-    if: >-
-      github.event_name == 'workflow_dispatch' || vars.CLOUDFLARE_DEPLOY_ENABLED
-      == 'true'
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 15
 
     steps:
+      - name: Validate release tag
+        shell: python
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          import datetime
+          import os
+          import re
+
+          tag = os.environ["RELEASE_TAG"]
+          match = re.fullmatch(r"Release-([0-9]{6})-([1-9][0-9]*)", tag)
+          if not match:
+              raise SystemExit("::error::Expected Release-YYMMDD-INDEX, with INDEX starting at 1 and no leading zeros.")
+          try:
+              datetime.datetime.strptime("20" + match[1], "%Y%m%d")
+          except ValueError:
+              raise SystemExit("::error::Release tag must contain a valid calendar date.")
+          print(f"Validated release tag: {tag}")
+
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -47,7 +62,7 @@ jobs:
         run: pnpm check
 
       - name: Deploy Worker and assets
-        run: pnpm --filter @workspace/worker deploy
+        run: pnpm --filter @workspace/worker run deploy
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

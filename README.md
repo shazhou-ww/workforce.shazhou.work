@@ -75,17 +75,20 @@ Worker, snapshot, browser, or repository.
 
 ## Deployment
 
-1. Create a KV namespace:
+1. The production `STATS` namespace is already bound in the checked-in
+   configuration. Reuse it for this account. Only when bootstrapping another
+   account or environment, create a new namespace:
 
    ```powershell
    pnpm --filter @workspace/worker exec wrangler kv namespace create STATS
    ```
 
-2. Replace the all-zero placeholder ID in `apps/worker/wrangler.jsonc` with the
-   returned ID. Do not deploy the placeholder. The config already declares the
-   `workforce.shazhou.work` custom domain and Worker name `workforce`. The
-   domain's zone must be in your Cloudflare account.
-3. Collect data as above and publish the snapshot:
+2. If you created a new namespace, replace its ID in
+   `apps/worker/wrangler.jsonc` with the returned ID. The config already
+   declares the `workforce.shazhou.work` custom domain and Worker name
+   `workforce`. The domain's zone must be in your Cloudflare account.
+3. For an initial local bootstrap, collect data as above and publish the
+   snapshot. Subsequent CI deployments use release tags as described below:
 
    ```powershell
    pnpm --filter @workspace/worker exec wrangler kv key put activity:v1 --binding STATS --path ..\..\.data\snapshot.json --remote

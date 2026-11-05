@@ -17,8 +17,7 @@
   "kv_namespaces": [
     {
       "binding": "STATS",
-      // Replace with the namespace ID before remote writes or deployment.
-      "id": "00000000000000000000000000000000",
+      "id": "089f1568861443d9b6e1bf9d2dc808cb",
     },
   ],
   "observability": {

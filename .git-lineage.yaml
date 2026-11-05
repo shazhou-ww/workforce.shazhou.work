@@ -1,4 +1,4 @@
 version: 1
 createdFrom:
-  repository: https://github.com/shazhou-ww/preset-pnpm-monorepo.git
+  repository: https://github.com/shazhou-ww/preset-cloudflare-fullstack.git
   branch: main

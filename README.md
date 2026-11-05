@@ -27,10 +27,13 @@ needed for local development.
   outside the 30-day window. This is repository activity, **not personal
   productivity** or a measure of code quality.
 
-The chart selects a day and updates the totals and repository statistics. Search
-filters the repository list only, not the global chart or totals. The browser
-re-reads the snapshot every five minutes. Data older than three hours is visibly
-marked stale.
+The repository list hides projects with zero additions plus deletions in the
+selected period by default, even if they have commits. Toggle "显示零变化项目"
+to include them. The count shows visible / total repositories. The chart selects
+a day and updates the totals and repository statistics. Search filters the
+repository list only, not the global chart or totals. The browser re-reads the
+snapshot every five minutes. Data older than three hours is visibly marked
+stale.
 
 ## Local development (PowerShell)
 
@@ -99,26 +102,35 @@ Worker, snapshot, browser, or repository.
    Custom-domain deployment creates the Cloudflare routing and certificate.
    Inspect any existing hostname configuration before approving replacement.
 
-4. Configure the GitHub `production` environment with secrets
-   `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`. Create a custom
-   Cloudflare API token with these permissions:
+4. Configure these GitHub `production` environment secrets:
 
-   | Scope   | Permission         | Access |
-   | ------- | ------------------ | ------ |
-   | Account | Workers Scripts    | Edit   |
-   | Account | Workers KV Storage | Edit   |
-   | Zone    | Zone               | Read   |
+   | Secret                    | Purpose and permission                                            |
+   | ------------------------- | ----------------------------------------------------------------- |
+   | `CLOUDFLARE_ACCOUNT_ID`   | Deployment account ID, shared by both workflows                   |
+   | `CLOUDFLARE_API_TOKEN`    | Deployment only: Individual Workers → `workforce` → Editor        |
+   | `CLOUDFLARE_KV_API_TOKEN` | Collection only: Workers KV Storage Write on the specific account |
 
-   Restrict account resources to the deployment account and zone resources to
-   `shazhou.work`. The same token supports Worker deployment and KV collection.
-   This app uses
+   Deployment and collection use separate tokens. Wrangler expects the
+   environment variable `CLOUDFLARE_API_TOKEN`, so the collection workflow maps
+   its dedicated `CLOUDFLARE_KV_API_TOKEN` secret to that variable only in the
+   KV publication step. The deployment token is never passed to collection. The
+   KV token covers all namespaces in the selected account, not just STATS.
+   Tokens have no expiration for this project and can be manually revoked. See
+   the current
+   [Workers roles and permissions](https://developers.cloudflare.com/workers/authorization/workers/).
+   Deploying with an existing KV binding does not require KV permissions.
+   Changing Routes or Custom Domains additionally requires Workers Routes Write
+   for the affected zone; deploying without connection changes needs only Editor
+   for that Worker.
+
+   Restrict account resources to the deployment account. If changing domain
+   connections, restrict additional zone permissions to `shazhou.work`. This app
+   uses
    [Custom Domains](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/),
-   whose
-   [attachment API](https://developers.cloudflare.com/api/resources/workers/subresources/domains/methods/update/)
-   accepts Workers Scripts Write; it does not need DNS Edit or classic Workers
-   Routes Edit. No Pages, D1, R2, or Global API Key is needed. Avoid a fixed IP
-   restriction for GitHub-hosted runners unless using controlled egress. Keep
-   the token only in Actions secrets, never in code or chat.
+   rather than manually managed DNS records. No DNS Edit, Pages, D1, R2, or
+   Global API Key is needed. Avoid a fixed IP restriction for GitHub-hosted
+   runners unless using controlled egress. Keep the token only in Actions
+   secrets, never in code or chat.
 
 5. After pushing the project, manually run **Collect public GitHub activity** to
    verify that the Actions token can collect and the Cloudflare token can

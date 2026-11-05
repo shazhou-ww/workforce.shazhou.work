@@ -165,6 +165,104 @@ describe("dashboard data loading", () => {
 });
 
 describe("read-only activity dashboard", () => {
+  it("hides zero-line changes by default and combines the toggle with daily selection and search", () => {
+    Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+    const zeroDaily = dailyActivity(
+      [{ sha: "zero", committedAt: window.until, additions: 0, deletions: 0 }],
+      window,
+    );
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    try {
+      act(() => {
+        root.render(
+          <Dashboard
+            state={{
+              kind: "ready",
+              snapshot: {
+                ...snapshot,
+                repositories: [
+                  repository,
+                  {
+                    ...repository,
+                    name: "owner/zero",
+                    daily: zeroDaily,
+                    ...activityTotals(zeroDaily),
+                  },
+                  {
+                    ...repository,
+                    name: "owner/deletions",
+                    additions: 0,
+                    deletions: 5,
+                  },
+                ],
+              },
+            }}
+            now={now}
+          />,
+        );
+      });
+      expect(container.querySelectorAll(".repo-table tbody tr")).toHaveLength(
+        2,
+      );
+      expect(container.querySelector(".count")?.textContent).toBe("2 / 3");
+      expect(container.querySelector(".repo-table")?.textContent).not.toContain(
+        "owner/zero",
+      );
+      const toggle = container.querySelector("input[type=checkbox]");
+      const day = container.querySelector(".chart-day");
+      if (
+        !(toggle instanceof HTMLInputElement) ||
+        !(day instanceof HTMLButtonElement)
+      )
+        throw new Error("Missing filters");
+      expect(toggle.checked).toBe(false);
+      act(() => {
+        toggle.click();
+      });
+      expect(container.querySelectorAll(".repo-table tbody tr")).toHaveLength(
+        3,
+      );
+      act(() => {
+        toggle.click();
+        day.click();
+      });
+      expect(container.querySelector(".repo-table")).toBeNull();
+      expect(container.textContent).toContain("勾选“显示零变化项目”");
+      act(() => {
+        toggle.click();
+      });
+      expect(container.querySelectorAll(".repo-table tbody tr")).toHaveLength(
+        3,
+      );
+      const search = container.querySelector("input[type=search]");
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      if (!(search instanceof HTMLInputElement) || !setter)
+        throw new Error("Missing search");
+      act(() => {
+        setter.call(search, "owner/zero");
+        search.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      expect(container.querySelectorAll(".repo-table tbody tr")).toHaveLength(
+        1,
+      );
+      expect(container.querySelector(".repo-table")?.textContent).toContain(
+        "owner/zero",
+      );
+      act(() => {
+        toggle.click();
+      });
+      expect(container.querySelector(".repo-table")).toBeNull();
+    } finally {
+      act(() => {
+        root.unmount();
+      });
+    }
+  });
+
   it("selects and deselects days, resets totals, and searches repository names", () => {
     Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
     const container = document.createElement("div");
@@ -202,7 +300,7 @@ describe("read-only activity dashboard", () => {
       });
       expect(last.getAttribute("aria-pressed")).toBe("false");
 
-      const search = container.querySelector("input");
+      const search = container.querySelector("input[type=search]");
       if (!(search instanceof HTMLInputElement))
         throw new Error("Missing search");
       const setter = Object.getOwnPropertyDescriptor(

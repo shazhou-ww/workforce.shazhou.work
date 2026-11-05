@@ -302,6 +302,20 @@ summary {
   margin-left: 6px;
   vertical-align: middle;
 }
+.zero-changes-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 18px;
+  color: #58667e;
+  font-size: 13px;
+  cursor: pointer;
+}
+.zero-changes-toggle input {
+  accent-color: #2255d7;
+  width: 16px;
+  height: 16px;
+}
 .search input {
   width: 240px;
   padding: 11px 14px;

@@ -74,13 +74,25 @@ function ActivityDashboard({
 }) {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [showZeroChanges, setShowZeroChanges] = useState(false);
   const totals = selectedDate
     ? activityTotals(snapshot.daily.filter((day) => day.date === selectedDate))
     : snapshot.totals;
   const maxCommits = Math.max(0, ...snapshot.daily.map((day) => day.commits));
-  const repositories = snapshot.repositories.filter((repository) =>
-    repository.name.toLowerCase().includes(search.trim().toLowerCase()),
-  );
+  const repositories = snapshot.repositories
+    .map((repository) => ({
+      repository,
+      period: selectedDate
+        ? activityTotals(
+            repository.daily.filter((day) => day.date === selectedDate),
+          )
+        : repository,
+    }))
+    .filter(
+      ({ repository, period }) =>
+        repository.name.toLowerCase().includes(search.trim().toLowerCase()) &&
+        (showZeroChanges || period.additions + period.deletions > 0),
+    );
   const stale = now - Date.parse(snapshot.until) > 3 * 60 * 60 * 1000;
 
   return (
@@ -231,12 +243,22 @@ function ActivityDashboard({
           <div>
             <h2 id="repositories-title">
               项目更新{" "}
-              <span className="count">{snapshot.repositories.length}</span>
+              <span className="count">
+                {repositories.length} / {snapshot.repositories.length}
+              </span>
             </h2>
             <p>
               按默认分支最新提交排序；统计列对应{selectedDate ?? "最近 30 天"}。
             </p>
           </div>
+          <label className="zero-changes-toggle">
+            <input
+              type="checkbox"
+              checked={showZeroChanges}
+              onChange={(event) => setShowZeroChanges(event.target.checked)}
+            />
+            显示零变化项目
+          </label>
           <label className="search">
             <span className="sr-only">搜索仓库</span>
             <input
@@ -252,7 +274,9 @@ function ActivityDashboard({
             这些账号下尚无公开仓库。私有仓库不会出现在此看板。
           </p>
         ) : repositories.length === 0 ? (
-          <p className="empty">没有匹配的仓库。请尝试其他名称。</p>
+          <p className="empty">
+            没有匹配的仓库。请调整搜索名称或勾选“显示零变化项目”。
+          </p>
         ) : (
           <div className="table-scroll">
             <table className="repo-table">
@@ -267,14 +291,7 @@ function ActivityDashboard({
                 </tr>
               </thead>
               <tbody>
-                {repositories.map((repository) => {
-                  const period = selectedDate
-                    ? activityTotals(
-                        repository.daily.filter(
-                          (day) => day.date === selectedDate,
-                        ),
-                      )
-                    : repository;
+                {repositories.map(({ repository, period }) => {
                   return (
                     <tr key={repository.name}>
                       <td className="repo-name">

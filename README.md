@@ -29,8 +29,11 @@ needed for local development.
 
 The repository list hides projects with zero additions plus deletions in the
 selected period by default, even if they have commits. Toggle "显示零变化项目"
-to include them. The count shows visible / total repositories. The chart selects
-a day and updates the totals and repository statistics. Search filters the
+to include them. The count shows visible / total repositories. The composite
+chart shows daily commit counts as bars (left axis) and daily additions plus
+deletions as a line (right axis); the two axes scale independently. Selecting a
+day updates the prominent date, totals, and repository statistics; selecting it
+again or choosing "查看 30 天合计" restores the full period. Search filters the
 repository list only, not the global chart or totals. The browser re-reads the
 snapshot every five minutes. Data older than three hours is visibly marked
 stale.

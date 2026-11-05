@@ -274,6 +274,17 @@ describe("read-only activity dashboard", () => {
           <Dashboard state={{ kind: "ready", snapshot }} now={now} />,
         );
       });
+      expect(container.querySelector(".period-value")?.textContent).toBe(
+        "近 30 天",
+      );
+      expect(container.querySelector(".period-detail")?.textContent).toContain(
+        "2026-10-07 至 2026-11-05",
+      );
+      expect(
+        [...container.querySelectorAll(".line-totals strong")].map(
+          (element) => element.textContent,
+        ),
+      ).toEqual(["+20", "−10"]);
       const day = container.querySelector("button.chart-day");
       if (!(day instanceof HTMLButtonElement))
         throw new Error("Missing chart day");
@@ -282,6 +293,15 @@ describe("read-only activity dashboard", () => {
       });
       expect(day.getAttribute("aria-pressed")).toBe("true");
       expect(container.textContent).toContain(window.dates[0]);
+      expect(container.querySelector(".period-value")?.textContent).toBe(
+        "10月7日",
+      );
+      expect(container.querySelector(".period-detail")?.textContent).toContain(
+        "星期三",
+      );
+      expect(
+        container.querySelector(".chart-day.selected .line-marker"),
+      ).not.toBeNull();
       act(() => {
         day.click();
       });
@@ -292,6 +312,12 @@ describe("read-only activity dashboard", () => {
       act(() => {
         last.click();
       });
+      expect(container.querySelector(".period-value")?.textContent).toBe(
+        "11月5日",
+      );
+      expect(container.querySelector(".period-detail")?.textContent).toContain(
+        "2026 年 · 星期四 · 北京时间",
+      );
       const reset = container.querySelector(".text-button");
       if (!(reset instanceof HTMLButtonElement))
         throw new Error("Missing reset");
@@ -299,6 +325,9 @@ describe("read-only activity dashboard", () => {
         reset.click();
       });
       expect(last.getAttribute("aria-pressed")).toBe("false");
+      expect(container.querySelector(".period-value")?.textContent).toBe(
+        "近 30 天",
+      );
 
       const search = container.querySelector("input[type=search]");
       if (!(search instanceof HTMLInputElement))
@@ -335,11 +364,67 @@ describe("read-only activity dashboard", () => {
     expect(html).toContain("Fork");
     expect(html).toContain("已归档");
     expect(html).toContain("Public activity");
-    expect(html).toContain("1 commits，平均 30 行变化");
+    expect(html).toContain(
+      "1 commits，30 行变化（新增 20，删除 10），平均 30 行/次",
+    );
     expect(html).toContain("北京时间");
     expect(html).not.toContain("/api/auth");
     expect(html).not.toContain("数据需要更新");
     expect(html.match(/aria-pressed=/g)).toHaveLength(30);
+  });
+
+  it("aligns daily total-change line points with bars and scales the axes independently", () => {
+    const chartDaily = dailyActivity(
+      [
+        { sha: "one", committedAt: window.since, additions: 60, deletions: 40 },
+        { sha: "two", committedAt: window.since, additions: 0, deletions: 0 },
+        { sha: "three", committedAt: window.until, additions: 5, deletions: 5 },
+      ],
+      window,
+    );
+    const container = document.createElement("div");
+    container.innerHTML = renderToStaticMarkup(
+      <Dashboard
+        state={{
+          kind: "ready",
+          snapshot: {
+            ...snapshot,
+            daily: chartDaily,
+            totals: activityTotals(chartDaily),
+          },
+        }}
+        now={now}
+      />,
+    );
+    const points = container
+      .querySelector(".chart-line polyline")
+      ?.getAttribute("points")
+      ?.split(" ")
+      .map((point) => point.split(",").map(Number));
+    expect(points).toHaveLength(30);
+    expect(points?.[0]?.[0]).toBeCloseTo(1000 / 60);
+    expect(points?.[0]?.[1]).toBe(10);
+    expect(points?.[1]?.[1]).toBe(100);
+    expect(points?.[29]?.[0]).toBeCloseTo((29.5 / 30) * 1000);
+    expect(points?.[29]?.[1]).toBe(91);
+    const bars = container.querySelectorAll<HTMLElement>(".bar");
+    expect(bars[0]?.style.height).toBe("90%");
+    expect(bars[29]?.style.height).toBe("45%");
+    const markers = container.querySelectorAll<HTMLElement>(".line-marker");
+    expect(markers[0]?.style.bottom).toBe("90%");
+    expect(markers[29]?.style.bottom).toBe("9%");
+    expect(container.querySelector(".commits-axis > span")?.textContent).toBe(
+      "2",
+    );
+    expect(container.querySelector(".lines-axis > span")?.textContent).toBe(
+      "100",
+    );
+    expect(
+      container.querySelector(".chart-day")?.getAttribute("aria-label"),
+    ).toContain("2 commits，100 行变化（新增 60，删除 40），平均 50 行/次");
+    expect(container.querySelector(".chart-day")?.getAttribute("title")).toBe(
+      container.querySelector(".chart-day")?.getAttribute("aria-label"),
+    );
   });
 
   it("renders empty repositories and stale data honestly", () => {
@@ -413,7 +498,21 @@ describe("read-only activity dashboard", () => {
         now={now}
       />,
     );
-    expect(html).toContain("最高 ");
+    const container = document.createElement("div");
+    container.innerHTML = html;
+    expect(container.querySelector(".commits-axis > span")?.textContent).toBe(
+      "0",
+    );
+    expect(container.querySelector(".lines-axis > span")?.textContent).toBe(
+      "0",
+    );
+    expect(
+      container
+        .querySelector(".chart-line polyline")
+        ?.getAttribute("points")
+        ?.split(" ")
+        .every((point) => point.endsWith(",100")),
+    ).toBe(true);
     expect(html).not.toContain("NaN");
     expect(html).not.toContain("Infinity");
   });

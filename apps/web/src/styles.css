@@ -157,7 +157,7 @@ h2 {
 }
 .metrics {
   display: grid;
-  grid-template-columns: 1fr 1fr 1.3fr 1fr;
+  grid-template-columns: 1.4fr 1fr 1.2fr 1.1fr;
   gap: 20px;
   align-items: center;
   padding: 34px 0;
@@ -166,8 +166,19 @@ h2 {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 10px;
-  font-size: 14px;
+  gap: 8px;
+}
+.period-value {
+  color: #2255d7;
+  font-size: clamp(26px, 2.8vw, 36px);
+  font-weight: 650;
+  letter-spacing: -1px;
+  line-height: 1.25;
+}
+.period-detail {
+  color: #58667e;
+  font-size: 12px;
+  line-height: 1.7;
 }
 .metric {
   border-left: 1px solid #d9e2f2;
@@ -195,8 +206,20 @@ h2 {
 .line-totals {
   display: flex;
   flex-direction: column;
-  gap: 9px;
-  font-size: 13px;
+  gap: 10px;
+}
+.line-totals > span {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  column-gap: 8px;
+  font-size: 14px;
+}
+.line-totals strong {
+  font-size: clamp(20px, 2.1vw, 28px);
+  font-weight: 650;
+  letter-spacing: -0.5px;
+  overflow-wrap: anywhere;
 }
 .additions {
   color: #12745c;
@@ -219,11 +242,90 @@ h2 {
   font-size: 12px;
   color: #58667e;
   margin-bottom: 14px;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.chart-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.chart-key::before {
+  content: "";
+  width: 14px;
+  flex-shrink: 0;
+}
+.commits-key::before {
+  height: 10px;
+  background: #8ca9f0;
+  border-radius: 2px 2px 0 0;
+}
+.lines-key::before {
+  border-top: 2px solid #8746a2;
+}
+.chart-composite {
+  --plot-height: 190px;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 64px;
+  column-gap: 8px;
+}
+.chart-axis {
+  position: relative;
+  height: var(--plot-height);
+  font-size: 11px;
+  color: #58667e;
+}
+.chart-axis > span {
+  position: absolute;
+  top: 10%;
+  transform: translateY(-50%);
+}
+.chart-axis > span:last-child {
+  top: 100%;
+}
+.commits-axis > span {
+  right: 0;
+}
+.lines-axis {
+  color: #8746a2;
 }
 .chart {
+  position: relative;
+  isolation: isolate;
   display: grid;
-  grid-template-columns: repeat(30, minmax(0, 1fr));
-  gap: 5px;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+}
+.chart::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 36px;
+  border-bottom: 1px solid #d9e2f2;
+  background: repeating-linear-gradient(
+    to top,
+    transparent 0,
+    transparent calc(var(--plot-height) / 4 - 1px),
+    #edf1f8 calc(var(--plot-height) / 4 - 1px),
+    #edf1f8 calc(var(--plot-height) / 4)
+  );
+  z-index: -1;
+}
+.chart-line {
+  position: absolute;
+  inset: 0 0 auto;
+  width: 100%;
+  height: var(--plot-height);
+  overflow: visible;
+  pointer-events: none;
+  z-index: 1;
+}
+.chart-line polyline {
+  fill: none;
+  stroke: #8746a2;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
 }
 .chart-day {
   border: 0;
@@ -233,17 +335,11 @@ h2 {
   min-width: 0;
 }
 .bar-track {
-  height: 166px;
+  position: relative;
+  height: var(--plot-height);
   display: flex;
   align-items: flex-end;
-  border-bottom: 1px solid #d9e2f2;
-  background: repeating-linear-gradient(
-    to top,
-    transparent 0,
-    transparent 40px,
-    #edf1f8 40px,
-    #edf1f8 41px
-  );
+  margin: 0 2.5px;
 }
 .bar {
   display: block;
@@ -264,12 +360,33 @@ h2 {
   color: #2255d7;
   font-weight: 750;
 }
+.line-marker {
+  position: absolute;
+  left: 50%;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #8746a2;
+  transform: translate(-50%, 50%);
+  pointer-events: none;
+  z-index: 2;
+}
+.chart-day:hover .line-marker,
+.chart-day:focus-visible .line-marker,
+.chart-day.selected .line-marker {
+  width: 9px;
+  height: 9px;
+  box-shadow: 0 0 0 2px #fff;
+}
 .day-label {
   display: block;
   height: 36px;
   padding-top: 10px;
   font-size: 10px;
   white-space: nowrap;
+}
+.chart-day:first-of-type .day-label {
+  text-align: left;
 }
 .chart-day:last-child .day-label {
   text-align: right;
@@ -484,8 +601,6 @@ footer {
   }
   .metric-context {
     grid-column: 1 / -1;
-    flex-direction: row;
-    align-items: baseline;
   }
   .metric {
     padding-left: 0;
@@ -495,9 +610,10 @@ footer {
     grid-column: 1 / -1;
     flex-direction: row;
     gap: 20px;
+    flex-wrap: wrap;
   }
-  .chart {
-    gap: 3px;
+  .bar-track {
+    margin: 0 1.5px;
   }
 }
 
@@ -538,14 +654,27 @@ footer {
   .metrics {
     padding: 24px 0;
   }
-  .chart {
-    gap: 2px;
+  .chart-composite {
+    --plot-height: 150px;
+    grid-template-columns: 28px minmax(0, 1fr) 40px;
+    column-gap: 4px;
+  }
+  .chart-axis {
+    font-size: 10px;
   }
   .bar-track {
-    height: 130px;
+    margin: 0 1px;
+  }
+  .line-marker {
+    width: 3px;
+    height: 3px;
   }
   .day-label {
     font-size: 8px;
+  }
+  .chart-day:nth-of-type(8) .day-label,
+  .chart-day:nth-of-type(22) .day-label {
+    visibility: hidden;
   }
   .search,
   .search input {

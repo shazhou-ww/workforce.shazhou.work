@@ -2,6 +2,7 @@ import {
   activityTotals,
   type ActivitySnapshot,
   type ActivityTotals,
+  type DailyActivity,
 } from "@workspace/contracts";
 import { useState } from "react";
 
@@ -18,6 +19,19 @@ const timestamp = new Intl.DateTimeFormat("zh-CN", {
   hour: "2-digit",
   minute: "2-digit",
   hour12: false,
+});
+const calendarDate = new Intl.DateTimeFormat("zh-CN", {
+  timeZone: "Asia/Shanghai",
+  month: "long",
+  day: "numeric",
+});
+const weekday = new Intl.DateTimeFormat("zh-CN", {
+  timeZone: "Asia/Shanghai",
+  weekday: "long",
+});
+const axisNumber = new Intl.NumberFormat("zh-CN", {
+  notation: "compact",
+  maximumFractionDigits: 1,
 });
 
 export function Dashboard({
@@ -78,7 +92,6 @@ function ActivityDashboard({
   const totals = selectedDate
     ? activityTotals(snapshot.daily.filter((day) => day.date === selectedDate))
     : snapshot.totals;
-  const maxCommits = Math.max(0, ...snapshot.daily.map((day) => day.commits));
   const repositories = snapshot.repositories
     .map((repository) => ({
       repository,
@@ -134,7 +147,22 @@ function ActivityDashboard({
         </div>
         <div className="metrics" aria-live="polite">
           <div className="metric-context">
-            <span>{selectedDate ?? "30 天合计"}</span>
+            <strong className="period-value">
+              {selectedDate
+                ? calendarDate.format(
+                    new Date(`${selectedDate}T00:00:00+08:00`),
+                  )
+                : "近 30 天"}
+            </strong>
+            <span className="period-detail">
+              {selectedDate ? (
+                `${selectedDate.slice(0, 4)} 年 · ${weekday.format(new Date(`${selectedDate}T00:00:00+08:00`))} · 北京时间`
+              ) : (
+                <>
+                  {snapshot.daily[0]?.date} 至 {snapshot.daily.at(-1)?.date}
+                </>
+              )}
+            </span>
             {selectedDate ? (
               <button
                 className="text-button"
@@ -143,7 +171,7 @@ function ActivityDashboard({
                 查看 30 天合计
               </button>
             ) : (
-              <span className="muted">点选柱形，查看当天</span>
+              <span className="muted">点选图表，查看当天</span>
             )}
           </div>
           <Metric label="提交数" value={totals.commits} unit="commits" />
@@ -154,61 +182,31 @@ function ActivityDashboard({
           />
           <div className="line-totals">
             <span className="additions">
-              +{number.format(totals.additions)} 新增
+              <strong>+{number.format(totals.additions)}</strong>
+              <span>新增</span>
             </span>
             <span className="deletions">
-              −{number.format(totals.deletions)} 删除
+              <strong>−{number.format(totals.deletions)}</strong>
+              <span>删除</span>
             </span>
           </div>
         </div>
-        <div className="chart-caption">
-          <span>每日提交数</span>
-          <span>最高 {number.format(maxCommits)}</span>
-        </div>
-        <div
-          className="chart"
-          role="group"
-          aria-label="30 天每日提交数，点击日期查看详情"
-        >
-          {snapshot.daily.map((day, index) => {
-            const label = `${day.date}：${day.commits} commits，平均 ${number.format(day.averageLines)} 行变化`;
-            return (
-              <button
-                key={day.date}
-                className={`chart-day${selectedDate === day.date ? " selected" : ""}`}
-                title={label}
-                aria-label={label}
-                aria-pressed={selectedDate === day.date}
-                onClick={() =>
-                  setSelectedDate(selectedDate === day.date ? null : day.date)
-                }
-              >
-                <span className="bar-track">
-                  <span
-                    className={`bar${day.commits === 0 ? " zero" : ""}`}
-                    style={{
-                      height: `${(day.commits / (maxCommits || 1)) * 100}%`,
-                    }}
-                  />
-                </span>
-                <span className="day-label" aria-hidden="true">
-                  {(index % 7 === 0 && index < snapshot.daily.length - 3) ||
-                  index === snapshot.daily.length - 1
-                    ? day.date.slice(5)
-                    : ""}
-                </span>
-              </button>
-            );
-          })}
-        </div>
+        <ActivityChart
+          daily={snapshot.daily}
+          selectedDate={selectedDate}
+          onSelectDate={(date) =>
+            setSelectedDate(selectedDate === date ? null : date)
+          }
+        />
         <details className="daily-details">
           <summary>查看每日明细与统计口径</summary>
           <p>
             统计公开仓库默认分支上所有作者的提交，按提交时间归入北京时间日期。
-            平均行变化 =（新增行 + 删除行）÷ 提交数；无提交时为 0。
-            包含合并提交、fork 及其继承的历史；相同 SHA 在同一仓库只计一次，
-            跨仓库分别计数。二进制文件变化不折算为代码行。 今天仅统计至{" "}
-            {timestamp.format(new Date(snapshot.until))}。
+            柱形表示每日提交次数（左轴），折线表示每日新增行 + 删除行（右轴），
+            两轴独立缩放，不能直接比较高度。 平均行变化 =（新增行 + 删除行）÷
+            提交数；无提交时为 0。 包含合并提交、fork 及其继承的历史；相同 SHA
+            在同一仓库只计一次， 跨仓库分别计数。二进制文件变化不折算为代码行。
+            今天仅统计至 {timestamp.format(new Date(snapshot.until))}。
           </p>
           <div className="table-scroll">
             <table>
@@ -365,6 +363,103 @@ function ActivityDashboard({
         )}
       </section>
     </>
+  );
+}
+
+function ActivityChart({
+  daily,
+  selectedDate,
+  onSelectDate,
+}: {
+  readonly daily: readonly DailyActivity[];
+  readonly selectedDate: string | null;
+  readonly onSelectDate: (date: string) => void;
+}) {
+  const maxCommits = Math.max(0, ...daily.map((day) => day.commits));
+  const maxLines = Math.max(
+    0,
+    ...daily.map((day) => day.additions + day.deletions),
+  );
+  const linePoints = daily
+    .map(
+      (day, index) =>
+        `${((index + 0.5) / daily.length) * 1000},${100 - ((day.additions + day.deletions) / (maxLines || 1)) * 90}`,
+    )
+    .join(" ");
+
+  return (
+    <div className="activity-chart">
+      <div className="chart-caption">
+        <span className="chart-key commits-key">提交次数 · 左轴</span>
+        <span className="chart-key lines-key">
+          变化行数（新增 + 删除） · 右轴
+        </span>
+      </div>
+      <div className="chart-composite">
+        <div className="chart-axis commits-axis" aria-hidden="true">
+          <span title={`${maxCommits} 次提交`}>
+            {axisNumber.format(maxCommits)}
+          </span>
+          <span>0</span>
+        </div>
+        <div
+          className="chart"
+          role="group"
+          aria-label="30 天每日提交次数与代码变化行数，点击日期查看详情"
+        >
+          <svg
+            className="chart-line"
+            viewBox="0 0 1000 100"
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          >
+            <polyline points={linePoints} />
+          </svg>
+          {daily.map((day, index) => {
+            const lines = day.additions + day.deletions;
+            const label = `${day.date}：${day.commits} commits，${number.format(lines)} 行变化（新增 ${number.format(day.additions)}，删除 ${number.format(day.deletions)}），平均 ${number.format(day.averageLines)} 行/次`;
+            return (
+              <button
+                key={day.date}
+                className={`chart-day${selectedDate === day.date ? " selected" : ""}`}
+                title={label}
+                aria-label={label}
+                aria-pressed={selectedDate === day.date}
+                onClick={() => onSelectDate(day.date)}
+              >
+                <span className="bar-track">
+                  <span
+                    className={`bar${day.commits === 0 ? " zero" : ""}`}
+                    style={{
+                      height: `${(day.commits / (maxCommits || 1)) * 90}%`,
+                    }}
+                  />
+                  <span
+                    className="line-marker"
+                    aria-hidden="true"
+                    style={{
+                      bottom: `${(lines / (maxLines || 1)) * 90}%`,
+                    }}
+                  />
+                </span>
+                <span className="day-label" aria-hidden="true">
+                  {(index % 7 === 0 && index < daily.length - 3) ||
+                  index === daily.length - 1
+                    ? day.date.slice(5)
+                    : ""}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="chart-axis lines-axis" aria-hidden="true">
+          <span title={`${number.format(maxLines)} 行变化`}>
+            {axisNumber.format(maxLines)}
+          </span>
+          <span>0</span>
+        </div>
+      </div>
+    </div>
   );
 }
 

@@ -58,6 +58,13 @@ Open `http://localhost:5173`. Vite proxies `/api/*` to the Worker on port 8787.
 Local KV persists under the Worker's ignored `.wrangler` directory. Generated
 snapshots are ignored under `.data`.
 
+The visual palette is derived from `--color-primary` in
+`apps/web/src/styles.css`. Change that single base color to retune the
+interface: `color-mix()` derives the deep chart line, light bars, text,
+backgrounds, and borders. The line, markers, legend, and right axis share the
+same deep tone. Addition/deletion and status colors retain their independent
+semantic meanings. No runtime theme picker is required.
+
 The public dashboard does not require OAuth secrets or sign-in. The template's
 OAuth APIs remain available, with `/api/me` still protected. To use them, copy
 `apps/worker/.dev.vars.example` to `.dev.vars`, generate a real `AUTH_SECRET`,

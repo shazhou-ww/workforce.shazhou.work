@@ -22,6 +22,10 @@ interface CommitHistory {
     readonly committedDate: string;
     readonly additions: number;
     readonly deletions: number;
+    readonly author: {
+      readonly email: string;
+      readonly user: { readonly login: string } | null;
+    } | null;
   }[];
   readonly pageInfo: {
     readonly hasNextPage: boolean;
@@ -52,7 +56,7 @@ interface HistoryPage {
 
 const historySelection = `
   history(first: 100, since: $since, until: $until, after: $cursor) {
-    nodes { oid committedDate additions deletions }
+    nodes { oid committedDate additions deletions author { email user { login } } }
     pageInfo { hasNextPage endCursor }
   }
 `;
@@ -87,11 +91,15 @@ const pinnedHistoryQuery = `
 
 export async function collectActivity({
   accounts,
+  authorLogin = "shazhou-ww",
+  authorEmails = [],
   token,
   now = new Date(),
   request = fetch,
 }: {
   readonly accounts: readonly string[];
+  readonly authorLogin?: string;
+  readonly authorEmails?: readonly string[];
   readonly token: string;
   readonly now?: Date;
   readonly request?: typeof fetch;
@@ -104,6 +112,15 @@ export async function collectActivity({
     accounts.some((account) => !/^[a-z\d](?:[a-z\d-]{0,38})$/i.test(account))
   ) {
     throw new Error("Configure at least one valid GitHub account.");
+  }
+  if (!/^[a-z\d](?:[a-z\d-]{0,38})$/i.test(authorLogin)) {
+    throw new Error("Configure a valid GITHUB_AUTHOR_LOGIN.");
+  }
+  const emails = new Set(
+    authorEmails.map((email) => email.trim().toLowerCase()),
+  );
+  if ([...emails].some((email) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) {
+    throw new Error("Configure valid comma-separated GITHUB_AUTHOR_EMAILS.");
   }
   const headers = {
     accept: "application/vnd.github+json",
@@ -202,6 +219,14 @@ export async function collectActivity({
     let history = metadata.defaultBranchRef?.target.history;
     while (history) {
       for (const commit of history.nodes) {
+        const author = commit.author;
+        if (
+          !author ||
+          (author.user?.login.toLowerCase() !== authorLogin.toLowerCase() &&
+            !emails.has(author.email.trim().toLowerCase()))
+        ) {
+          continue;
+        }
         commits.push({
           sha: commit.oid,
           committedAt: commit.committedDate,
@@ -270,6 +295,10 @@ export async function collectActivity({
   return {
     version: 1,
     accounts: [...new Set(accounts)],
+    authorFilter: {
+      login: authorLogin,
+      emailMatching: emails.size > 0,
+    },
     generatedAt: new Date().toISOString(),
     since: window.since,
     until: window.until,

@@ -34,6 +34,10 @@ export interface RepositoryActivity extends ActivityTotals {
 export interface ActivitySnapshot {
   readonly version: 1;
   readonly accounts: readonly string[];
+  readonly authorFilter?: {
+    readonly login: string;
+    readonly emailMatching: boolean;
+  };
   readonly generatedAt: string;
   readonly since: string;
   readonly until: string;

@@ -37,6 +37,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_ACCOUNTS: ${{ vars.GITHUB_ACCOUNTS || 'shazhou-ww' }}
+          GITHUB_AUTHOR_LOGIN: ${{ vars.GITHUB_AUTHOR_LOGIN || 'shazhou-ww' }}
+          GITHUB_AUTHOR_EMAILS: ${{ vars.GITHUB_AUTHOR_EMAILS }}
       - name: Publish only after successful collection
         working-directory: apps/worker
         run:

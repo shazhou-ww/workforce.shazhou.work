@@ -165,6 +165,28 @@ describe("dashboard data loading", () => {
 });
 
 describe("read-only activity dashboard", () => {
+  it.each([false, true])(
+    "labels author-filtered snapshots without exposing author emails: %s",
+    (emailMatching) => {
+      const html = renderToStaticMarkup(
+        <Dashboard
+          state={{
+            kind: "ready",
+            snapshot: {
+              ...snapshot,
+              authorFilter: { login: "shazhou-ww", emailMatching },
+            },
+          }}
+          now={now}
+        />,
+      );
+      expect(html).toContain("仅统计主作者 shazhou-ww");
+      expect(html.includes("（含已确认邮箱）")).toBe(emailMatching);
+      expect(html).toContain("不按提交者或联合作者匹配");
+      expect(html).not.toContain("统计所有作者");
+    },
+  );
+
   it("hides zero-line changes by default and combines the toggle with daily selection and search", () => {
     Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
     const zeroDaily = dailyActivity(
@@ -368,6 +390,8 @@ describe("read-only activity dashboard", () => {
       "1 commits，30 行变化（新增 20，删除 10），平均 30 行/次",
     );
     expect(html).toContain("北京时间");
+    expect(html).toContain("统计所有作者");
+    expect(html).not.toContain("仅统计主作者");
     expect(html).not.toContain("/api/auth");
     expect(html).not.toContain("数据需要更新");
     expect(html.match(/aria-pressed=/g)).toHaveLength(30);

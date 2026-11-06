@@ -8,16 +8,23 @@ const repository = {
   private: false,
   owner: { login: "owner" },
 };
+interface TestCommit {
+  oid: string;
+  committedDate: string;
+  additions: number;
+  deletions: number;
+  author: { email: string; user: { login: string } | null } | null;
+}
+const ownCommit: TestCommit = {
+  oid: "sha",
+  committedDate: now.toISOString(),
+  additions: 20,
+  deletions: 10,
+  author: { email: "author@example.com", user: { login: "shazhou-ww" } },
+};
 
 function graph({
-  nodes = [
-    {
-      oid: "sha",
-      committedDate: now.toISOString(),
-      additions: 20,
-      deletions: 10,
-    },
-  ],
+  nodes = [ownCommit],
   next = false,
   cursor = null as string | null,
   empty = false,
@@ -66,6 +73,159 @@ function response(body: unknown, status = 200) {
 }
 
 describe("public GitHub collector", () => {
+  it("counts only the primary account or confirmed author emails, keeping forks and filtering every page", async () => {
+    const request = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(response([repository]))
+      .mockResolvedValueOnce(
+        response(
+          graph({
+            nodes: [
+              {
+                ...ownCommit,
+                author: {
+                  email: "different@example.com",
+                  user: { login: "SHAZHOU-WW" },
+                },
+              },
+              {
+                ...ownCommit,
+                oid: "upstream",
+                additions: 9999,
+                author: {
+                  email: "upstream@example.com",
+                  user: { login: "upstream" },
+                },
+              },
+              {
+                ...ownCommit,
+                oid: "bot",
+                author: {
+                  email: "bot@example.com",
+                  user: { login: "Copilot" },
+                },
+              },
+              { ...ownCommit, oid: "unknown", author: null },
+            ],
+            next: true,
+            cursor: "next",
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(
+        response(
+          graph({
+            nodes: [
+              {
+                ...ownCommit,
+                oid: "email-one",
+                author: { email: " FIRST@example.com ", user: null },
+              },
+              {
+                ...ownCommit,
+                oid: "email-two",
+                author: { email: "second@example.com", user: null },
+              },
+              {
+                ...ownCommit,
+                oid: "unconfirmed",
+                author: { email: "unknown@example.com", user: null },
+              },
+              {
+                ...ownCommit,
+                oid: "upstream-page",
+                author: {
+                  email: "upstream@example.com",
+                  user: { login: "upstream" },
+                },
+              },
+              ownCommit,
+            ],
+          }),
+        ),
+      );
+    const result = await collectActivity({
+      accounts: ["owner"],
+      authorLogin: "shazhou-ww",
+      authorEmails: ["first@example.com", "SECOND@example.com"],
+      token: "token",
+      now,
+      request,
+    });
+    expect(result.authorFilter).toEqual({
+      login: "shazhou-ww",
+      emailMatching: true,
+    });
+    expect(result.repositories[0]?.fork).toBe(true);
+    expect(result.repositories[0]?.latestCommit?.message).toBe(
+      "Update project",
+    );
+    expect(result.totals).toEqual({
+      commits: 3,
+      additions: 60,
+      deletions: 30,
+      averageLines: 30,
+    });
+    expect(result.repositories[0]?.commits).toBe(3);
+    expect(result.daily.at(-1)?.commits).toBe(3);
+    expect(JSON.stringify(result)).not.toContain("@example.com");
+    for (const call of request.mock.calls.slice(1)) {
+      const body = call[1]?.body;
+      if (typeof body !== "string") throw new Error("Missing GraphQL body");
+      expect(body).toContain("author { email user { login } }");
+      expect(body).not.toContain("committer");
+    }
+  });
+
+  it("returns real zero totals when no primary author matches and supports a different configured author", async () => {
+    const request = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(response([repository]))
+      .mockResolvedValueOnce(response(graph()));
+    const result = await collectActivity({
+      accounts: ["owner"],
+      authorLogin: "another-user",
+      token: "token",
+      now,
+      request,
+    });
+    expect(result.totals.commits).toBe(0);
+    expect(result.repositories).toHaveLength(1);
+    expect(result.authorFilter).toEqual({
+      login: "another-user",
+      emailMatching: false,
+    });
+  });
+
+  it.each([
+    {
+      authorLogin: "bad/name",
+      authorEmails: [],
+      message: "GITHUB_AUTHOR_LOGIN",
+    },
+    {
+      authorLogin: "shazhou-ww",
+      authorEmails: ["invalid"],
+      message: "GITHUB_AUTHOR_EMAILS",
+    },
+  ])(
+    "rejects invalid author configuration: $message",
+    async ({ authorLogin, authorEmails, message }) => {
+      const request = vi.fn<typeof fetch>();
+      await expect(
+        collectActivity({
+          accounts: ["owner"],
+          authorLogin,
+          authorEmails,
+          token: "token",
+          now,
+          request,
+        }),
+      ).rejects.toThrow(message);
+      expect(request).not.toHaveBeenCalled();
+    },
+  );
+
   it("retries transient GraphQL failures without duplicating history", async () => {
     vi.useFakeTimers();
     const warning = vi.spyOn(console, "warn").mockImplementation(() => {});

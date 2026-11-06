@@ -8,6 +8,11 @@ const snapshot = await collectActivity({
     .split(",")
     .map((account) => account.trim()),
   token: process.env.GH_TOKEN ?? "",
+  authorLogin: process.env.GITHUB_AUTHOR_LOGIN ?? "shazhou-ww",
+  authorEmails: (process.env.GITHUB_AUTHOR_EMAILS ?? "")
+    .split(",")
+    .map((email) => email.trim())
+    .filter(Boolean),
 });
 const directory = resolve(".data");
 await mkdir(directory, { recursive: true });
@@ -16,5 +21,5 @@ await writeFile(
   `${JSON.stringify(snapshot)}\n`,
 );
 console.info(
-  `Collected ${snapshot.repositories.length} public repositories, ${snapshot.totals.commits} commits. Saved .data/snapshot.json.`,
+  `Collected ${snapshot.repositories.length} public repositories, ${snapshot.totals.commits} commits by ${snapshot.authorFilter?.login}; confirmed author email matching: ${snapshot.authorFilter?.emailMatching}. Saved .data/snapshot.json.`,
 );

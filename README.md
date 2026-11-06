@@ -17,14 +17,27 @@ needed for local development.
 - Last **30 Beijing calendar days**, including the partial current day. History
   is fixed to a single collection cutoff, using GitHub's committed timestamp
   rather than author date or push date.
-- All authors on each repository's **default branch**, including merge commits,
-  archived repositories, forks, and inherited history. A SHA is counted once per
-  repository, but can count again in another repository.
+- Only commits whose **primary author** is linked to `shazhou-ww` by GitHub, or
+  whose author email matches the configured `GITHUB_AUTHOR_EMAILS`, on each
+  repository's **default branch**. Set `GITHUB_AUTHOR_LOGIN` to change the
+  login. Author emails are configured as a comma-separated environment variable
+  or GitHub repository variable, not committed to source or exposed in
+  snapshots. Login and email comparisons are case-insensitive. Unlinked authors
+  without a confirmed email are excluded; author names are never used as
+  identity.
+- Keep archived repositories, forks, and inherited history, but apply the same
+  author filter to every history page. Committers and `Co-authored-by` trailers
+  do not determine inclusion: a matching primary author with Copilot as
+  co-author still counts; a bot primary author does not match merely because you
+  merged it. Merge commits by a matching author still count and may include
+  upstream code, so these are not original-authorship line counts. A SHA is
+  counted once per repository, but can count again in another repository.
 - Lines changed = GitHub commit **additions + deletions**. Average = total lines
   changed / commit count, not the average of repository or daily averages. Zero
   commits means zero average. Binary changes have no code-line equivalent.
-- The project list shows the latest default-branch commit even when it falls
-  outside the 30-day window. This is repository activity, **not personal
+- The project list shows the latest default-branch commit from **any author**,
+  even when it falls outside the 30-day window or author filter; statistics
+  columns use the author filter. This is repository activity, **not personal
   productivity** or a measure of code quality.
 
 The repository list hides projects with zero additions plus deletions in the
@@ -46,8 +59,11 @@ Use Node.js 24.11.1+ and pnpm 11.22+:
 pnpm install --frozen-lockfile
 # Uses your existing GitHub CLI login; never print or commit this token.
 $env:GH_TOKEN = gh auth token
+# Optional confirmed author emails; use your own, never commit this value.
+$env:GITHUB_AUTHOR_EMAILS = "author@example.com,another@example.com"
 pnpm collect
 Remove-Item Env:GH_TOKEN
+Remove-Item Env:GITHUB_AUTHOR_EMAILS
 
 # Local KV only. Does not write to Cloudflare.
 pnpm --filter @workspace/worker exec wrangler kv key put activity:v1 --binding STATS --path ..\..\.data\snapshot.json --local
@@ -76,9 +92,15 @@ template. Do not configure providers for the read-only public dashboard.
 `pnpm collect` enumerates **all repository pages**, then uses paginated GitHub
 GraphQL history to read commit additions/deletions without one REST request per
 commit. Pagination is pinned to each repository's initial head SHA so pushes
-during collection cannot shift pages. It needs `GH_TOKEN`; a token that can read
-public repositories and call GraphQL is sufficient. There is no need to grant
-private-repository permissions.
+during collection cannot shift pages. Every commit is filtered by its primary
+author login or confirmed email before any totals are computed. Snapshots carry
+`authorFilter` metadata (login and whether email matching is enabled, never
+email addresses); the UI uses it to label the scope. Legacy snapshots without
+this metadata are explicitly labeled as all-author activity until recollected.
+Configure `GITHUB_AUTHOR_LOGIN` and `GITHUB_AUTHOR_EMAILS` as repository
+variables for Actions and environment variables for local collection. It needs
+`GH_TOKEN`; a token that can read public repositories and call GraphQL is
+sufficient. There is no need to grant private-repository permissions.
 
 Collection retries transient HTTP 500/502/503/504 responses twice, after one and
 two seconds, logging each retry. Other HTTP errors and GraphQL errors are not

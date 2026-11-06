@@ -107,6 +107,9 @@ function ActivityDashboard({
         (showZeroChanges || period.additions + period.deletions > 0),
     );
   const stale = now - Date.parse(snapshot.until) > 3 * 60 * 60 * 1000;
+  const authorScope = snapshot.authorFilter
+    ? `仅统计主作者 ${snapshot.authorFilter.login}${snapshot.authorFilter.emailMatching ? "（含已确认邮箱）" : ""}`
+    : "统计所有作者";
 
   return (
     <>
@@ -142,6 +145,7 @@ function ActivityDashboard({
               {snapshot.daily[0]?.date} 至 {snapshot.daily.at(-1)?.date}
               <span className="timezone">北京时间 · 默认分支</span>
             </p>
+            <p>{authorScope}</p>
           </div>
           <span className="period">最近 30 天，含今天</span>
         </div>
@@ -201,10 +205,23 @@ function ActivityDashboard({
         <details className="daily-details">
           <summary>查看每日明细与统计口径</summary>
           <p>
-            统计公开仓库默认分支上所有作者的提交，按提交时间归入北京时间日期。
+            {authorScope}
+            的提交，范围为公开仓库默认分支，按提交时间归入北京时间日期。
+            {snapshot.authorFilter ? (
+              <>
+                按 GitHub 主作者账号
+                {snapshot.authorFilter.emailMatching
+                  ? "或已确认的作者邮箱"
+                  : ""}
+                匹配，不按提交者或联合作者匹配。主作者匹配时，Copilot
+                作为联合作者不影响计入；仅由机器人作为主作者且不匹配的提交不计入。
+              </>
+            ) : null}
             柱形表示每日提交次数（左轴），折线表示每日新增行 + 删除行（右轴），
             两轴独立缩放，不能直接比较高度。 平均行变化 =（新增行 + 删除行）÷
-            提交数；无提交时为 0。 包含合并提交、fork 及其继承的历史；相同 SHA
+            提交数；无提交时为 0。 保留
+            fork；合并提交及继承历史也按同一作者口径计入。
+            合并提交的变化可能包含上游代码，不代表原创代码行数。相同 SHA
             在同一仓库只计一次， 跨仓库分别计数。二进制文件变化不折算为代码行。
             今天仅统计至 {timestamp.format(new Date(snapshot.until))}。
           </p>
@@ -282,7 +299,7 @@ function ActivityDashboard({
               <thead>
                 <tr>
                   <th>仓库 / 默认分支</th>
-                  <th>最新提交（不限 30 天）</th>
+                  <th>最新提交（所有作者，不限 30 天）</th>
                   <th>提交数</th>
                   <th>代码变化</th>
                   <th>平均行变化</th>

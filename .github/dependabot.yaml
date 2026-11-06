@@ -5,6 +5,10 @@ updates:
     schedule:
       interval: weekly
     groups:
+      react-runtime:
+        patterns:
+          - react
+          - react-dom
       development-dependencies:
         dependency-type: development
 

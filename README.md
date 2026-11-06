@@ -21,10 +21,10 @@ needed for local development.
   whose author email matches the configured `GITHUB_AUTHOR_EMAILS`, on each
   repository's **default branch**. Set `GITHUB_AUTHOR_LOGIN` to change the
   login. Author emails are configured as a comma-separated environment variable
-  or GitHub repository variable, not committed to source or exposed in
-  snapshots. Login and email comparisons are case-insensitive. Unlinked authors
-  without a confirmed email are excluded; author names are never used as
-  identity.
+  or `WORKFORCE_AUTHOR_EMAILS` GitHub repository variable, not committed to
+  source or exposed in snapshots. Login and email comparisons are
+  case-insensitive. Unlinked authors without a confirmed email are excluded;
+  author names are never used as identity.
 - Keep archived repositories, forks, and inherited history, but apply the same
   author filter to every history page. Committers and `Co-authored-by` trailers
   do not determine inclusion: a matching primary author with Copilot as
@@ -97,10 +97,13 @@ author login or confirmed email before any totals are computed. Snapshots carry
 `authorFilter` metadata (login and whether email matching is enabled, never
 email addresses); the UI uses it to label the scope. Legacy snapshots without
 this metadata are explicitly labeled as all-author activity until recollected.
-Configure `GITHUB_AUTHOR_LOGIN` and `GITHUB_AUTHOR_EMAILS` as repository
-variables for Actions and environment variables for local collection. It needs
-`GH_TOKEN`; a token that can read public repositories and call GraphQL is
-sufficient. There is no need to grant private-repository permissions.
+Configure `WORKFORCE_AUTHOR_LOGIN` and `WORKFORCE_AUTHOR_EMAILS` as repository
+variables for Actions; the workflow maps them to `GITHUB_AUTHOR_LOGIN` and
+`GITHUB_AUTHOR_EMAILS` environment variables, which are also used for local
+collection. GitHub does not allow repository variable names starting with
+`GITHUB_`. It needs `GH_TOKEN`; a token that can read public repositories and
+call GraphQL is sufficient. There is no need to grant private-repository
+permissions.
 
 Collection retries transient HTTP 500/502/503/504 responses twice, after one and
 two seconds, logging each retry. Other HTTP errors and GraphQL errors are not

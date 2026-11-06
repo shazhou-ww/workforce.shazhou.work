@@ -80,9 +80,11 @@ during collection cannot shift pages. It needs `GH_TOKEN`; a token that can read
 public repositories and call GraphQL is sufficient. There is no need to grant
 private-repository permissions.
 
-Collection fails explicitly on HTTP errors, GraphQL errors, missing/private
-repositories, network failures, or invalid pagination. It writes the output only
-when the entire collection succeeds. The publication workflow stops on failure,
+Collection retries transient HTTP 500/502/503/504 responses twice, after one and
+two seconds, logging each retry. Other HTTP errors and GraphQL errors are not
+retried. Exhausted retries fail explicitly, as do missing/private repositories,
+network failures, or invalid pagination. It writes the output only when the
+entire collection succeeds. The publication workflow stops on failure,
 preserving the previous complete KV value. No GitHub token is stored in the
 Worker, snapshot, browser, or repository.
 
@@ -152,8 +154,10 @@ Worker, snapshot, browser, or repository.
 5. After pushing the project, manually run **Collect public GitHub activity** to
    verify that the Actions token can collect and the Cloudflare token can
    publish. Set repository variable `WORKFORCE_SYNC_ENABLED=true` to enable the
-   hourly schedule (minute 17, UTC; GitHub may delay scheduled jobs). Manual
-   dispatch always attempts collection.
+   hourly schedule (minute 17, UTC; GitHub may delay or drop scheduled jobs, so
+   this is not an hourly freshness guarantee). If data is stale, inspect recent
+   runs and manually dispatch collection to recover. Manual dispatch always
+   attempts collection.
 6. Deploy by pushing a release tag, **not** by pushing `main` or manually
    dispatching the deployment workflow:
 

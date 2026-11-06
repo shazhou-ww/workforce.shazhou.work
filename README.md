@@ -27,10 +27,16 @@ needed for local development.
   outside the 30-day window. This is repository activity, **not personal
   productivity** or a measure of code quality.
 
-The chart selects a day and updates the totals and repository statistics. Search
-filters the repository list only, not the global chart or totals. The browser
-re-reads the snapshot every five minutes. Data older than three hours is visibly
-marked stale.
+The repository list hides projects with zero additions plus deletions in the
+selected period by default, even if they have commits. Toggle "显示零变化项目"
+to include them. The count shows visible / total repositories. The composite
+chart shows daily commit counts as bars (left axis) and daily additions plus
+deletions as a line (right axis); the two axes scale independently. Selecting a
+day updates the prominent date, totals, and repository statistics; selecting it
+again or choosing "查看 30 天合计" restores the full period. Search filters the
+repository list only, not the global chart or totals. The browser re-reads the
+snapshot every five minutes. Data older than three hours is visibly marked
+stale.
 
 ## Local development (PowerShell)
 
@@ -52,6 +58,13 @@ Open `http://localhost:5173`. Vite proxies `/api/*` to the Worker on port 8787.
 Local KV persists under the Worker's ignored `.wrangler` directory. Generated
 snapshots are ignored under `.data`.
 
+The visual palette is derived from `--color-primary` in
+`apps/web/src/styles.css`. Change that single base color to retune the
+interface: `color-mix()` derives the deep chart line, light bars, text,
+backgrounds, and borders. The line, markers, legend, and right axis share the
+same deep tone. Addition/deletion and status colors retain their independent
+semantic meanings. No runtime theme picker is required.
+
 The public dashboard does not require OAuth secrets or sign-in. The template's
 OAuth APIs remain available, with `/api/me` still protected. To use them, copy
 `apps/worker/.dev.vars.example` to `.dev.vars`, generate a real `AUTH_SECRET`,
@@ -67,25 +80,31 @@ during collection cannot shift pages. It needs `GH_TOKEN`; a token that can read
 public repositories and call GraphQL is sufficient. There is no need to grant
 private-repository permissions.
 
-Collection fails explicitly on HTTP errors, GraphQL errors, missing/private
-repositories, network failures, or invalid pagination. It writes the output only
-when the entire collection succeeds. The publication workflow stops on failure,
+Collection retries transient HTTP 500/502/503/504 responses twice, after one and
+two seconds, logging each retry. Other HTTP errors and GraphQL errors are not
+retried. Exhausted retries fail explicitly, as do missing/private repositories,
+network failures, or invalid pagination. It writes the output only when the
+entire collection succeeds. The publication workflow stops on failure,
 preserving the previous complete KV value. No GitHub token is stored in the
 Worker, snapshot, browser, or repository.
 
 ## Deployment
 
-1. Create a KV namespace:
+1. The production `STATS` namespace is already bound in the checked-in
+   configuration. Reuse it for this account. Only when bootstrapping another
+   account or environment, create a new namespace:
 
    ```powershell
    pnpm --filter @workspace/worker exec wrangler kv namespace create STATS
    ```
 
-2. Replace the all-zero placeholder ID in `apps/worker/wrangler.jsonc` with the
-   returned ID. Do not deploy the placeholder. The config already declares the
-   `workforce.shazhou.work` custom domain and Worker name `workforce`. The
-   domain's zone must be in your Cloudflare account.
-3. Collect data as above and publish the snapshot:
+2. If you created a new namespace, replace its ID in
+   `apps/worker/wrangler.jsonc` with the returned ID. The config declares Worker
+   name `workforce`, but intentionally omits `routes`: routine deployments do
+   not manage domain bindings. `workers_dev: false` keeps the workers.dev
+   endpoint disabled even without routes in the config.
+3. For an initial local bootstrap, collect data as above and publish the
+   snapshot. Subsequent CI deployments use release tags as described below:
 
    ```powershell
    pnpm --filter @workspace/worker exec wrangler kv key put activity:v1 --binding STATS --path ..\..\.data\snapshot.json --remote
@@ -93,35 +112,52 @@ Worker, snapshot, browser, or repository.
    pnpm run deploy
    ```
 
-   Custom-domain deployment creates the Cloudflare routing and certificate.
-   Inspect any existing hostname configuration before approving replacement.
+   For a new environment only, open the Cloudflare dashboard after deploying:
+   Workers & Pages -> workforce -> Settings -> Domains & Routes -> Add -> Custom
+   Domain, and bind `workforce.shazhou.work`. The domain's zone must be in that
+   account. Inspect any existing hostname configuration before approving
+   replacement. This one-time setup creates routing and the certificate; the
+   existing production binding does not need to be recreated. Subsequent
+   deployments preserve that binding without calling the custom domain
+   management API.
 
-4. Configure the GitHub `production` environment with secrets
-   `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`. Create a custom
-   Cloudflare API token with these permissions:
+4. Configure these GitHub `production` environment secrets:
 
-   | Scope   | Permission         | Access |
-   | ------- | ------------------ | ------ |
-   | Account | Workers Scripts    | Edit   |
-   | Account | Workers KV Storage | Edit   |
-   | Zone    | Zone               | Read   |
+   | Secret                    | Purpose and permission                                            |
+   | ------------------------- | ----------------------------------------------------------------- |
+   | `CLOUDFLARE_ACCOUNT_ID`   | Deployment account ID, shared by both workflows                   |
+   | `CLOUDFLARE_API_TOKEN`    | Deployment only: Individual Workers → `workforce` → Editor        |
+   | `CLOUDFLARE_KV_API_TOKEN` | Collection only: Workers KV Storage Write on the specific account |
 
-   Restrict account resources to the deployment account and zone resources to
-   `shazhou.work`. The same token supports Worker deployment and KV collection.
-   This app uses
+   Deployment and collection use separate tokens. Wrangler expects the
+   environment variable `CLOUDFLARE_API_TOKEN`, so the collection workflow maps
+   its dedicated `CLOUDFLARE_KV_API_TOKEN` secret to that variable only in the
+   KV publication step. The deployment token is never passed to collection. The
+   KV token covers all namespaces in the selected account, not just STATS.
+   Tokens have no expiration for this project and can be manually revoked. See
+   the current
+   [Workers roles and permissions](https://developers.cloudflare.com/workers/authorization/workers/).
+   Deploying with an existing KV binding does not require KV permissions.
+   Routine releases need no Zone Read or Workers Routes Write permissions: they
+   update the Worker and assets, not Routes or Custom Domains. Domain setup or
+   changes are performed separately by an authorized operator in the Cloudflare
+   dashboard.
+
+   Restrict account resources to the deployment account. Do not add zone
+   permissions to the routine deployment token. This app uses
    [Custom Domains](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/),
-   whose
-   [attachment API](https://developers.cloudflare.com/api/resources/workers/subresources/domains/methods/update/)
-   accepts Workers Scripts Write; it does not need DNS Edit or classic Workers
-   Routes Edit. No Pages, D1, R2, or Global API Key is needed. Avoid a fixed IP
-   restriction for GitHub-hosted runners unless using controlled egress. Keep
-   the token only in Actions secrets, never in code or chat.
+   rather than manually managed DNS records. No DNS Edit, Pages, D1, R2, or
+   Global API Key is needed. Avoid a fixed IP restriction for GitHub-hosted
+   runners unless using controlled egress. Keep the token only in Actions
+   secrets, never in code or chat.
 
 5. After pushing the project, manually run **Collect public GitHub activity** to
    verify that the Actions token can collect and the Cloudflare token can
    publish. Set repository variable `WORKFORCE_SYNC_ENABLED=true` to enable the
-   hourly schedule (minute 17, UTC; GitHub may delay scheduled jobs). Manual
-   dispatch always attempts collection.
+   hourly schedule (minute 17, UTC; GitHub may delay or drop scheduled jobs, so
+   this is not an hourly freshness guarantee). If data is stale, inspect recent
+   runs and manually dispatch collection to recover. Manual dispatch always
+   attempts collection.
 6. Deploy by pushing a release tag, **not** by pushing `main` or manually
    dispatching the deployment workflow:
 

@@ -61,7 +61,7 @@ jobs:
       - name: Validate workspace
         run: pnpm check
 
-      - name: Deploy Worker and assets
+      - name: Deploy Worker and assets without managing custom domains
         run: pnpm --filter @workspace/worker run deploy
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

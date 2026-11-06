@@ -13,12 +13,12 @@
   "vars": {
     "APP_NAME": "Workforce",
   },
-  "routes": [{ "pattern": "workforce.shazhou.work", "custom_domain": true }],
+  // Custom domains are bootstrapped in Cloudflare, not managed by releases.
+  "workers_dev": false,
   "kv_namespaces": [
     {
       "binding": "STATS",
-      // Replace with the namespace ID before remote writes or deployment.
-      "id": "00000000000000000000000000000000",
+      "id": "089f1568861443d9b6e1bf9d2dc808cb",
     },
   ],
   "observability": {

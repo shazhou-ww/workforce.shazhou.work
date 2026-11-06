@@ -1,3 +1,5 @@
+import { setTimeout as delay } from "node:timers/promises";
+
 import {
   activityTotals,
   activityWindow,
@@ -110,12 +112,27 @@ export async function collectActivity({
     "x-github-api-version": "2022-11-28",
   };
   async function github<T>(path: string, body?: object): Promise<T> {
-    const response = await request(`https://api.github.com${path}`, {
-      method: body ? "POST" : "GET",
-      headers,
-      ...(body ? { body: JSON.stringify(body) } : {}),
-      signal: AbortSignal.timeout(60_000),
-    });
+    const send = () =>
+      request(`https://api.github.com${path}`, {
+        method: body ? "POST" : "GET",
+        headers,
+        ...(body ? { body: JSON.stringify(body) } : {}),
+        signal: AbortSignal.timeout(60_000),
+      });
+    let response = await send();
+    for (
+      let retry = 1;
+      retry <= 2 && [500, 502, 503, 504].includes(response.status);
+      retry += 1
+    ) {
+      const waitMs = 1000 * 2 ** (retry - 1);
+      console.warn(
+        `GitHub ${path}: HTTP ${response.status}; retry ${retry}/2 in ${waitMs}ms.`,
+      );
+      await response.body?.cancel();
+      await delay(waitMs);
+      response = await send();
+    }
     if (!response.ok) {
       throw new Error(
         `GitHub ${path}: HTTP ${response.status}; rate limit resets at ${response.headers.get("x-ratelimit-reset") ?? "unknown"}. Snapshot was not published.`,

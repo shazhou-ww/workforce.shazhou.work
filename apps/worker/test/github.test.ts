@@ -66,6 +66,70 @@ function response(body: unknown, status = 200) {
 }
 
 describe("public GitHub collector", () => {
+  it("retries transient GraphQL failures without duplicating history", async () => {
+    vi.useFakeTimers();
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const request = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(response([repository]))
+        .mockResolvedValueOnce(response({}, 502))
+        .mockResolvedValueOnce(response({}, 503))
+        .mockResolvedValueOnce(response(graph()));
+      const result = collectActivity({
+        accounts: ["owner"],
+        token: "token",
+        now,
+        request,
+      });
+      await vi.runAllTimersAsync();
+      expect((await result).totals.commits).toBe(1);
+      expect(request).toHaveBeenCalledTimes(4);
+      expect(request.mock.calls[1]?.[1]?.body).toBe(
+        request.mock.calls[3]?.[1]?.body,
+      );
+      expect(warning).toHaveBeenNthCalledWith(
+        1,
+        "GitHub /graphql: HTTP 502; retry 1/2 in 1000ms.",
+      );
+      expect(warning).toHaveBeenNthCalledWith(
+        2,
+        "GitHub /graphql: HTTP 503; retry 2/2 in 2000ms.",
+      );
+    } finally {
+      warning.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([500, 502, 503, 504])(
+    "stops after three attempts on HTTP %s",
+    async (status) => {
+      vi.useFakeTimers();
+      const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const request = vi
+          .fn<typeof fetch>()
+          .mockImplementation(() => Promise.resolve(response({}, status)));
+        const rejected = expect(
+          collectActivity({
+            accounts: ["owner"],
+            token: "token",
+            now,
+            request,
+          }),
+        ).rejects.toThrow(`HTTP ${status}`);
+        await vi.runAllTimersAsync();
+        await rejected;
+        expect(request).toHaveBeenCalledTimes(3);
+        expect(warning).toHaveBeenCalledTimes(2);
+      } finally {
+        warning.mockRestore();
+        vi.useRealTimers();
+      }
+    },
+  );
+
   it("collects all repository and history pages and never counts a SHA twice per repository", async () => {
     const request = vi
       .fn<typeof fetch>()
@@ -183,6 +247,7 @@ describe("public GitHub collector", () => {
       await expect(
         collectActivity({ accounts: ["owner"], token: "token", request }),
       ).rejects.toThrow("HTTP 403");
+      expect(request).toHaveBeenCalledTimes(1);
     },
   );
 

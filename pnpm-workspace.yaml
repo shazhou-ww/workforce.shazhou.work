@@ -29,7 +29,7 @@ catalog:
   typescript-eslint: ^8.71.2
   vite: ^8.3.5
   vitest: ^5.0.4
-  wrangler: ^4.151.0
+  wrangler: ^4.151.1
   happy-dom: ^21.0.4
 
 minimumReleaseAgeExclude:

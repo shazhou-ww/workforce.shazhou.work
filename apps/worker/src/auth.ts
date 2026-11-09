@@ -1,4 +1,4 @@
-import type { AuthConfig } from "@hono/auth-js";
+import type { AuthConfig, AuthUser } from "@hono/auth-js";
 import type { Provider } from "@auth/core/providers";
 import GitHub from "@auth/core/providers/github";
 import Google from "@auth/core/providers/google";
@@ -14,8 +14,39 @@ export function createAuthConfig(env: Bindings): AuthConfig {
   return {
     providers: createAuthProviders(env),
     secret: env.AUTH_SECRET,
+    basePath: "/api/auth",
     trustHost: true,
+    callbacks: {
+      jwt({ token, account }) {
+        if (account) {
+          token.githubAccountId =
+            account.provider === "github" ? account.providerAccountId : null;
+        }
+        return token;
+      },
+    },
   };
+}
+
+export function collectionAdminIds(env: Bindings): readonly string[] {
+  const ids = (env.COLLECTION_ADMIN_GITHUB_IDS ?? "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean);
+  if (ids.some((id) => !/^[1-9]\d*$/.test(id))) {
+    throw new Error(
+      "COLLECTION_ADMIN_GITHUB_IDS must contain comma-separated numeric GitHub user IDs.",
+    );
+  }
+  return ids;
+}
+
+export function canCollectActivity(
+  user: AuthUser | null,
+  env: Bindings,
+): boolean {
+  const id = user?.token?.githubAccountId;
+  return typeof id === "string" && collectionAdminIds(env).includes(id);
 }
 
 export function getConfiguredProviders(

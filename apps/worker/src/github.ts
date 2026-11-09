@@ -1,5 +1,3 @@
-import { setTimeout as delay } from "node:timers/promises";
-
 import {
   activityTotals,
   activityWindow,
@@ -9,6 +7,7 @@ import {
   type CommitActivity,
   type RepositoryActivity,
 } from "@workspace/contracts";
+import { createGitHubClient } from "./github-client.js";
 
 interface PublicRepository {
   readonly name: string;
@@ -122,59 +121,7 @@ export async function collectActivity({
   if ([...emails].some((email) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) {
     throw new Error("Configure valid comma-separated GITHUB_AUTHOR_EMAILS.");
   }
-  const headers = {
-    accept: "application/vnd.github+json",
-    authorization: `Bearer ${token}`,
-    "user-agent": "workforce-activity",
-    "x-github-api-version": "2022-11-28",
-  };
-  async function github<T>(path: string, body?: object): Promise<T> {
-    const send = () =>
-      request(`https://api.github.com${path}`, {
-        method: body ? "POST" : "GET",
-        headers,
-        ...(body ? { body: JSON.stringify(body) } : {}),
-        signal: AbortSignal.timeout(60_000),
-      });
-    let response = await send();
-    for (
-      let retry = 1;
-      retry <= 2 && [500, 502, 503, 504].includes(response.status);
-      retry += 1
-    ) {
-      const waitMs = 1000 * 2 ** (retry - 1);
-      console.warn(
-        `GitHub ${path}: HTTP ${response.status}; retry ${retry}/2 in ${waitMs}ms.`,
-      );
-      await response.body?.cancel();
-      await delay(waitMs);
-      response = await send();
-    }
-    if (!response.ok) {
-      throw new Error(
-        `GitHub ${path}: HTTP ${response.status}; rate limit resets at ${response.headers.get("x-ratelimit-reset") ?? "unknown"}. Snapshot was not published.`,
-      );
-    }
-    return response.json<T>();
-  }
-
-  async function graphql<T>(query: string, variables: object): Promise<T> {
-    const result = await github<{
-      data?: T;
-      errors?: readonly { message: string }[];
-    }>("/graphql", { query, variables });
-    if (result.errors?.length) {
-      throw new Error(
-        `GitHub GraphQL: ${result.errors.map((error) => error.message).join("; ")}`,
-      );
-    }
-    if (!result.data) {
-      throw new Error(
-        "GitHub GraphQL returned no data. Snapshot was not published.",
-      );
-    }
-    return result.data;
-  }
+  const { github, graphql } = createGitHubClient(token, request);
 
   const window = activityWindow(now);
   const discovered = new Map<string, PublicRepository>();

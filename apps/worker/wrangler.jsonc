@@ -1,7 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "workforce",
-  "main": "src/index.ts",
+  "main": "src/entry.ts",
   "compatibility_date": "2026-10-19",
   "compatibility_flags": ["nodejs_compat"],
   "assets": {
@@ -12,6 +12,8 @@
   },
   "vars": {
     "APP_NAME": "Workforce",
+    "COLLECTION_ENABLED": "true",
+    "COLLECTION_ADMIN_GITHUB_IDS": "242885595",
   },
   // Custom domains are bootstrapped in Cloudflare, not managed by releases.
   "workers_dev": false,
@@ -21,6 +23,23 @@
       "id": "089f1568861443d9b6e1bf9d2dc808cb",
     },
   ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "workforce-activity",
+      "database_id": "a871612e-91f5-43d5-a07c-45612b5bc4a4",
+      "migrations_dir": "migrations",
+    },
+  ],
+  "workflows": [
+    {
+      "binding": "COLLECTION",
+      "name": "workforce-activity",
+      "class_name": "ActivityCollection",
+    },
+  ],
+  // Hourly UTC schedule; COLLECTION_ENABLED and D1 configuration also gate execution.
+  "triggers": { "crons": ["17 * * * *"] },
   "observability": {
     "enabled": true,
   },

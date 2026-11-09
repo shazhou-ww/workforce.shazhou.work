@@ -4,7 +4,7 @@ import {
   type ActivityTotals,
   type DailyActivity,
 } from "@workspace/contracts";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
 export type DashboardState =
   | { readonly kind: "loading" }
@@ -37,9 +37,13 @@ const axisNumber = new Intl.NumberFormat("zh-CN", {
 export function Dashboard({
   state,
   now = Date.now(),
+  collectionControl,
+  refreshError,
 }: {
   readonly state: DashboardState;
   readonly now?: number;
+  readonly collectionControl?: ReactNode;
+  readonly refreshError?: string | null;
 }) {
   return (
     <div className="shell">
@@ -53,8 +57,16 @@ export function Dashboard({
           </svg>
           Workforce
         </a>
-        <span className="readonly">公开仓库 · 只读看板</span>
+        <div className="header-actions">
+          <span className="readonly">公开仓库 · 只读看板</span>
+          {collectionControl}
+        </div>
       </header>
+      {state.kind === "ready" && refreshError ? (
+        <p className="stale-notice" role="alert">
+          刷新统计失败，已保留上次完整结果：{refreshError}
+        </p>
+      ) : null}
       <main>
         {state.kind === "loading" ? (
           <section className="notice" role="status">
@@ -133,7 +145,7 @@ function ActivityDashboard({
       {stale ? (
         <p className="stale-notice" role="status">
           数据截止 {timestamp.format(new Date(snapshot.until))}，已超过 3 小时。
-          请检查 GitHub Actions 采集任务；下方保留上一次完整结果，并非实时数据。
+          请检查 Cloudflare 采集任务；下方保留上一次完整结果，并非实时数据。
         </p>
       ) : null}
 
@@ -411,6 +423,8 @@ function ActivityChart({
         <span className="chart-key lines-key">
           变化行数（新增 + 删除） · 右轴
         </span>
+        <span className="chart-key weekdays-key">周一至周五</span>
+        <span className="chart-key weekends-key">周末（周六、周日）</span>
       </div>
       <div className="chart-composite">
         <div className="chart-axis commits-axis" aria-hidden="true">
@@ -434,11 +448,13 @@ function ActivityChart({
           </svg>
           {daily.map((day, index) => {
             const lines = day.additions + day.deletions;
-            const label = `${day.date}：${day.commits} commits，${number.format(lines)} 行变化（新增 ${number.format(day.additions)}，删除 ${number.format(day.deletions)}），平均 ${number.format(day.averageLines)} 行/次`;
+            const date = new Date(`${day.date}T00:00:00Z`);
+            const isWeekend = date.getUTCDay() === 0 || date.getUTCDay() === 6;
+            const label = `${day.date}：${day.commits} commits，${number.format(lines)} 行变化（新增 ${number.format(day.additions)}，删除 ${number.format(day.deletions)}），平均 ${number.format(day.averageLines)} 行/次；${weekday.format(date)}${isWeekend ? "（周末）" : ""}`;
             return (
               <button
                 key={day.date}
-                className={`chart-day${selectedDate === day.date ? " selected" : ""}`}
+                className={`chart-day${isWeekend ? " weekend" : ""}${selectedDate === day.date ? " selected" : ""}`}
                 title={label}
                 aria-label={label}
                 aria-pressed={selectedDate === day.date}

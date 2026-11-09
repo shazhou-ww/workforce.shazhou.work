@@ -32,6 +32,35 @@ export interface SessionUser {
 export interface SessionResponse {
   readonly expires?: string;
   readonly user?: SessionUser;
+  readonly canCollect?: boolean;
+}
+
+export interface CollectionAccessResponse {
+  readonly loginEnabled: boolean;
+  readonly signedIn: boolean;
+  readonly canCollect: boolean;
+  readonly displayName: string | null;
+  readonly activeRunId: string | null;
+}
+
+export interface CollectionTriggerResponse {
+  readonly runId: string;
+}
+
+export interface CollectionProgressResponse {
+  readonly runId: string;
+  readonly status:
+    | "queued"
+    | "collecting"
+    | "ready"
+    | "published"
+    | "failed"
+    | "blocked"
+    | "cancelled";
+  readonly waiting: boolean;
+  readonly completedRepositories: number;
+  readonly totalRepositories: number;
+  readonly until: string;
 }
 
 export function getAuthProviderLabel(id: AuthProviderId): string {

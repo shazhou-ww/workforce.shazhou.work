@@ -1,10 +1,22 @@
 import type { ActivitySnapshot } from "@workspace/contracts";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { Dashboard, type DashboardState } from "./ui.js";
+import { CollectionControl } from "./collection-control.js";
+import { fetchJson } from "./api.js";
 
 export function App() {
   const [state, setState] = useState<DashboardState>({ kind: "loading" });
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const collectionCompleted = useCallback((snapshot: ActivitySnapshot) => {
+    setState((previous) =>
+      previous.kind === "ready" &&
+      Date.parse(previous.snapshot.until) > Date.parse(snapshot.until)
+        ? previous
+        : { kind: "ready", snapshot },
+    );
+    setRefreshError(null);
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -14,20 +26,19 @@ export function App() {
       void loadDashboard(controller.signal)
         .then((snapshot) => {
           if (controller.signal.aborted) return;
-          setState({
-            kind: "ready",
-            snapshot,
-          });
+          collectionCompleted(snapshot);
         })
         .catch((error: unknown) => {
           if (controller.signal.aborted) {
             return;
           }
 
-          setState({
-            kind: "error",
-            message: error instanceof Error ? error.message : String(error),
-          });
+          const message =
+            error instanceof Error ? error.message : String(error);
+          setRefreshError(message);
+          setState((previous) =>
+            previous.kind === "ready" ? previous : { kind: "error", message },
+          );
         })
         .finally(() => {
           if (!controller.signal.aborted) {
@@ -41,30 +52,17 @@ export function App() {
       controller.abort();
       clearTimeout(timer);
     };
-  }, []);
+  }, [collectionCompleted]);
 
-  return <Dashboard state={state} />;
+  return (
+    <Dashboard
+      state={state}
+      refreshError={refreshError}
+      collectionControl={<CollectionControl onSnapshot={collectionCompleted} />}
+    />
+  );
 }
 
 async function loadDashboard(signal: AbortSignal): Promise<ActivitySnapshot> {
   return fetchJson<ActivitySnapshot>("/api/activity", signal);
-}
-
-async function fetchJson<T>(path: string, signal: AbortSignal): Promise<T> {
-  const response = await fetch(path, {
-    headers: {
-      accept: "application/json",
-    },
-    signal,
-  });
-
-  if (!response.ok) {
-    const body = (await response.json()) as { error?: string };
-    if (body.error) {
-      throw new Error(body.error);
-    }
-    throw new Error(`${path} returned HTTP ${response.status}`);
-  }
-
-  return (await response.json()) as T;
 }

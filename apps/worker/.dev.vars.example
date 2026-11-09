@@ -1,5 +1,7 @@
 AUTH_SECRET=replace-with-a-random-secret
 AUTH_URL=http://localhost:5173/api/auth
+# Numeric GitHub IDs, not logins or emails. Production administrator: shazhou-ww.
+COLLECTION_ADMIN_GITHUB_IDS=242885595
 
 AUTH_GITHUB_ID=
 AUTH_GITHUB_SECRET=
@@ -10,3 +12,12 @@ AUTH_GOOGLE_SECRET=
 AUTH_MICROSOFT_ENTRA_ID_ID=
 AUTH_MICROSOFT_ENTRA_ID_SECRET=
 AUTH_MICROSOFT_ENTRA_ID_ISSUER=https://login.microsoftonline.com/common/v2.0
+
+# Independent GitHub credential; never use the expired Actions automatic token.
+GH_TOKEN=
+# Optional owner-specific read-only token. Omit unused overrides; never leave them empty.
+# GH_TOKEN_SILVERMOON_WORK=replace-with-an-organization-read-only-token
+# Generate independent random values of at least 32 characters.
+COLLECTION_ADMIN_TOKEN=
+# Keep this key stable: commit email fingerprints depend on it.
+COLLECTION_EMAIL_KEY=

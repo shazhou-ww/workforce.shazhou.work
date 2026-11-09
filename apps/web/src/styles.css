@@ -10,6 +10,7 @@
   --color-border-strong: color-mix(in srgb, var(--color-primary) 25%, #fff);
   --color-rule: color-mix(in srgb, var(--color-primary) 8%, #fff);
   --color-highlight: color-mix(in srgb, var(--color-primary) 12%, #fff);
+  --color-weekend: #f5f5f5;
   color: var(--color-text);
   background: var(--color-page);
   font-family:
@@ -68,6 +69,70 @@ summary:focus-visible {
 }
 .brand svg {
   color: var(--color-primary);
+}
+.header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+.collection-control {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+  max-width: 390px;
+}
+.collect-button {
+  padding: 9px 14px;
+  border: 1px solid var(--color-primary);
+  border-radius: 4px;
+  background: var(--color-surface);
+  color: var(--color-primary);
+  font-size: 13px;
+  font-weight: 650;
+}
+.collect-button:hover:not(:disabled) {
+  background: var(--color-highlight);
+}
+.collect-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.collection-auth-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 4px 2px;
+  color: var(--color-primary);
+  font-size: 13px;
+}
+.collection-notice {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: right;
+  color: var(--color-muted);
+}
+.collection-notice.error {
+  color: #b13c3c;
+}
+@media (max-width: 600px) {
+  .masthead {
+    flex-wrap: wrap;
+    padding: 20px 0;
+  }
+  .header-actions,
+  .collection-control {
+    justify-content: flex-start;
+    max-width: 100%;
+  }
+  .collection-notice {
+    text-align: left;
+  }
 }
 .readonly,
 .muted,
@@ -274,6 +339,16 @@ h2 {
 .lines-key::before {
   border-top: 2px solid var(--color-primary-strong);
 }
+.weekdays-key::before,
+.weekends-key::before {
+  height: 12px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+.weekends-key::before {
+  border: 0;
+  background: var(--color-weekend);
+}
 .chart-composite {
   --plot-height: 190px;
   display: grid;
@@ -339,11 +414,20 @@ h2 {
   vector-effect: non-scaling-stroke;
 }
 .chart-day {
+  position: relative;
   border: 0;
   background: transparent;
   color: var(--color-muted);
   padding: 0;
   min-width: 0;
+}
+.chart-day.weekend::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: var(--plot-height);
+  background: var(--color-weekend);
+  z-index: -2;
 }
 .bar-track {
   position: relative;

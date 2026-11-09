@@ -10,8 +10,14 @@ import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { secureHeaders } from "hono/secure-headers";
 
-import { createAuthConfig, getConfiguredProviders } from "./auth.js";
+import {
+  canCollectActivity,
+  createAuthConfig,
+  getConfiguredProviders,
+} from "./auth.js";
 import type { Bindings } from "./env.js";
+import { collectionApi } from "./collection-api.js";
+import { manualCollectionApi } from "./manual-collection-api.js";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -22,6 +28,8 @@ app.use(
 );
 
 app.use("/api/auth/*", authHandler());
+app.route("/api/collection", collectionApi);
+app.route("/api/activity/collection", manualCollectionApi);
 
 app.get("/api/health", (context) =>
   context.json<HealthResponse>({
@@ -37,7 +45,10 @@ app.get("/api/activity", async (context) => {
   );
   if (!snapshot) {
     return context.json(
-      { error: "尚无统计快照。请运行 GitHub 采集任务并将结果写入 STATS KV。" },
+      {
+        error:
+          "尚无统计快照。请配置 Cloudflare 采集任务并将完整结果写入 STATS KV。",
+      },
       503,
     );
   }
@@ -62,8 +73,12 @@ app.get("/api/bootstrap", (context) =>
 
 app.use("/api/me", verifyAuth());
 app.get("/api/me", (context) => {
-  const session = context.get("authUser").session;
-  return context.json(toSessionResponse(session));
+  const user = context.get("authUser");
+  context.header("Cache-Control", "no-store");
+  return context.json({
+    ...toSessionResponse(user.session),
+    canCollect: canCollectActivity(user, context.env),
+  });
 });
 
 app.notFound((context) =>

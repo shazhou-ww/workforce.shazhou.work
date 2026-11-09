@@ -5,7 +5,12 @@ export default defineConfig({
   plugins: [react()],
   test: {
     coverage: {
-      include: ["src/ui.tsx", "src/app.tsx"],
+      include: [
+        "src/ui.tsx",
+        "src/app.tsx",
+        "src/api.ts",
+        "src/collection-control.tsx",
+      ],
       provider: "v8",
       reporter: ["text", "json", "html"],
       thresholds: {

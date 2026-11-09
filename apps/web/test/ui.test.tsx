@@ -53,12 +53,142 @@ afterEach(() => {
 });
 
 describe("dashboard data loading", () => {
+  it("refreshes immediately after manual collection and retains the newer snapshot if an older request finishes late", async () => {
+    vi.useFakeTimers();
+    Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+    const updated = {
+      ...snapshot,
+      until: "2026-11-05T09:00:00.000Z",
+      generatedAt: "2026-11-05T09:00:00.000Z",
+    };
+    let resolveOld: (response: Response) => void = () => {
+      throw new Error("Periodic refresh was not started");
+    };
+    let activityCalls = 0;
+    const request = vi.fn<typeof fetch>().mockImplementation((input, init) => {
+      if (input === "/api/activity/collection")
+        return Promise.resolve(
+          Response.json(
+            init?.method === "POST"
+              ? { runId: "run" }
+              : {
+                  loginEnabled: true,
+                  signedIn: true,
+                  canCollect: true,
+                  displayName: "Admin",
+                  activeRunId: null,
+                },
+          ),
+        );
+      if (input === "/api/activity/collection/runs/run")
+        return Promise.resolve(
+          Response.json({
+            runId: "run",
+            status: "published",
+            waiting: false,
+            completedRepositories: 1,
+            totalRepositories: 1,
+            until: updated.until,
+          }),
+        );
+      if (input === "/api/activity") {
+        activityCalls += 1;
+        return activityCalls === 1
+          ? Promise.resolve(Response.json(snapshot))
+          : new Promise<Response>((resolve) => {
+              resolveOld = resolve;
+            });
+      }
+      return Promise.resolve(Response.json(updated));
+    });
+    vi.stubGlobal("fetch", request);
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    try {
+      await act(async () => {
+        root.render(<App />);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+      });
+      const button = [...container.querySelectorAll("button")].find(
+        (element) => element.textContent === "手动采集",
+      );
+      if (!button) throw new Error("Manual control is missing.");
+      await act(async () => {
+        button.click();
+      });
+      expect(container.textContent).toContain("统计已更新");
+      expect(container.textContent).toContain("11/05 17:00");
+      await act(async () => {
+        resolveOld(Response.json(snapshot));
+      });
+      expect(container.textContent).toContain("11/05 17:00");
+    } finally {
+      act(() => {
+        root.unmount();
+      });
+    }
+  });
+
+  it("keeps a complete snapshot visible when a later automatic refresh fails", async () => {
+    vi.useFakeTimers();
+    let activityCalls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockImplementation((input) => {
+        if (input === "/api/activity/collection")
+          return Promise.resolve(
+            Response.json({
+              loginEnabled: false,
+              signedIn: false,
+              canCollect: false,
+              displayName: null,
+              activeRunId: null,
+            }),
+          );
+        return Promise.resolve(
+          ++activityCalls === 1
+            ? Response.json(snapshot)
+            : Response.json({ error: "暂时不可用" }, { status: 503 }),
+        );
+      }),
+    );
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    try {
+      await act(async () => {
+        root.render(<App />);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+      });
+      expect(container.textContent).toContain("owner/project");
+      expect(container.textContent).toContain("已保留上次完整结果");
+      expect(container.textContent).toContain("暂时不可用");
+    } finally {
+      act(() => {
+        root.unmount();
+      });
+    }
+  });
+
   it("loads the public API, refreshes after five minutes, and cancels work on unmount", async () => {
     vi.useFakeTimers();
     Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
-    const request = vi
-      .fn<typeof fetch>()
-      .mockImplementation(async () => new Response(JSON.stringify(snapshot)));
+    const request = vi.fn<typeof fetch>().mockImplementation(async (input) =>
+      Response.json(
+        input === "/api/activity/collection"
+          ? {
+              loginEnabled: false,
+              signedIn: false,
+              canCollect: false,
+              displayName: null,
+              activeRunId: null,
+            }
+          : snapshot,
+      ),
+    );
     vi.stubGlobal("fetch", request);
     const container = document.createElement("div");
     const root = createRoot(container);
@@ -67,18 +197,23 @@ describe("dashboard data loading", () => {
         root.render(<App />);
       });
       expect(container.textContent).toContain("owner/project");
-      expect(request).toHaveBeenCalledTimes(1);
+      expect(
+        request.mock.calls.filter(([url]) => url === "/api/activity"),
+      ).toHaveLength(1);
       await act(async () => {
         await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
       });
-      expect(request).toHaveBeenCalledTimes(2);
-      expect(request.mock.calls[0]?.[0]).toBe("/api/activity");
+      expect(
+        request.mock.calls.filter(([url]) => url === "/api/activity"),
+      ).toHaveLength(2);
     } finally {
       act(() => {
         root.unmount();
       });
     }
-    expect(request.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+    expect(request.mock.calls.every(([, init]) => init?.signal?.aborted)).toBe(
+      true,
+    );
     expect(vi.getTimerCount()).toBe(0);
   });
 
@@ -92,9 +227,7 @@ describe("dashboard data loading", () => {
         "fetch",
         vi
           .fn<typeof fetch>()
-          .mockResolvedValue(
-            new Response(JSON.stringify(body), { status: 503 }),
-          ),
+          .mockResolvedValue(Response.json(body, { status: 503 })),
       );
       const container = document.createElement("div");
       const root = createRoot(container);
@@ -395,6 +528,44 @@ describe("read-only activity dashboard", () => {
     expect(html).not.toContain("/api/auth");
     expect(html).not.toContain("数据需要更新");
     expect(html.match(/aria-pressed=/g)).toHaveLength(30);
+  });
+
+  it("marks Beijing-calendar weekends, including zero-activity days and a month boundary", () => {
+    const container = document.createElement("div");
+    container.innerHTML = renderToStaticMarkup(
+      <Dashboard state={{ kind: "ready", snapshot }} now={now} />,
+    );
+    expect(container.querySelector(".weekdays-key")?.textContent).toBe(
+      "周一至周五",
+    );
+    expect(container.querySelector(".weekends-key")?.textContent).toBe(
+      "周末（周六、周日）",
+    );
+    const days = [...container.querySelectorAll("button.chart-day")];
+    expect(
+      days
+        .filter((day) => day.classList.contains("weekend"))
+        .map((day) => day.getAttribute("aria-label")?.slice(0, 10)),
+    ).toEqual([
+      "2026-10-10",
+      "2026-10-11",
+      "2026-10-17",
+      "2026-10-18",
+      "2026-10-24",
+      "2026-10-25",
+      "2026-10-31",
+      "2026-11-01",
+    ]);
+    const saturday = days.find((day) =>
+      day.getAttribute("aria-label")?.startsWith("2026-10-31"),
+    );
+    expect(saturday?.querySelector(".bar.zero")).not.toBeNull();
+    expect(saturday?.getAttribute("aria-label")).toContain("星期六（周末）");
+    expect(saturday?.getAttribute("title")).toBe(
+      saturday?.getAttribute("aria-label"),
+    );
+    expect(days[0]?.getAttribute("aria-label")).toContain("星期三");
+    expect(days[0]?.getAttribute("aria-label")).not.toContain("周末");
   });
 
   it("aligns daily total-change line points with bars and scales the axes independently", () => {

@@ -1,5 +1,5 @@
 {
-  "name": "@workspace/worker",
+  "name": "@shazhou-work/workforce-worker",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -15,8 +15,8 @@
   "dependencies": {
     "@auth/core": "catalog:",
     "@hono/auth-js": "catalog:",
-    "@workspace/contracts": "workspace:*",
-    "@workspace/web": "workspace:*",
+    "@shazhou-work/workforce-contracts": "workspace:*",
+    "@shazhou-work/workforce-web": "workspace:*",
     "hono": "catalog:"
   },
   "devDependencies": {

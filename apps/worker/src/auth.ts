@@ -6,7 +6,7 @@ import MicrosoftEntraID from "@auth/core/providers/microsoft-entra-id";
 import {
   getAuthProviderLabel,
   type AuthProviderDescriptor,
-} from "@workspace/contracts";
+} from "@shazhou-work/workforce-contracts";
 
 import type { Bindings } from "./env.js";
 

@@ -1,4 +1,4 @@
-import type { RepositoryActivity } from "@workspace/contracts";
+import type { RepositoryActivity } from "@shazhou-work/workforce-contracts";
 import {
   GitHubError,
   type GitHubClient,

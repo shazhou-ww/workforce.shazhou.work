@@ -9,6 +9,18 @@ latest complete dashboard snapshot. No deployment or push is needed for local
 development. Production collection runs hourly at minute 17 UTC; local
 collection remains opt-in through its own D1 configuration.
 
+## Workspace packages
+
+The root package is `workforce`. Private workspace packages use the
+`@shazhou-work/workforce-<role>` naming convention:
+
+- `@shazhou-work/workforce-web` in `apps/web`: React/Vite frontend.
+- `@shazhou-work/workforce-worker` in `apps/worker`: Cloudflare Worker API.
+- `@shazhou-work/workforce-contracts` in `packages/contracts`: shared contracts.
+
+Internal dependencies use `workspace:*`. This npm scope does not change the
+GitHub repository location.
+
 ## What is counted
 
 - Accounts and repository scope come from a versioned D1 configuration. Both
@@ -70,7 +82,7 @@ Remove-Item Env:GH_TOKEN
 Remove-Item Env:GITHUB_AUTHOR_EMAILS
 
 # Optional offline bootstrap of local KV. Does not write to Cloudflare.
-pnpm --filter @workspace/worker exec wrangler kv key put activity:v1 --binding STATS --path ..\..\.data\snapshot.json --local
+pnpm --filter @shazhou-work/workforce-worker exec wrangler kv key put activity:v1 --binding STATS --path ..\..\.data\snapshot.json --local
 pnpm dev
 ```
 
@@ -272,7 +284,7 @@ credential that can read public repositories and call GraphQL; never put it in
 the browser or D1. No private-repository permission is required.
 
 ```powershell
-pnpm --filter @workspace/worker exec wrangler d1 migrations apply DB --local
+pnpm --filter @shazhou-work/workforce-worker exec wrangler d1 migrations apply DB --local
 pnpm dev
 
 # Run in another terminal; load your management token without committing it.
@@ -323,7 +335,7 @@ name `GH_TOKEN`. Alternatively, run from the repository root and enter the token
 at Wrangler's masked prompt:
 
 ```powershell
-pnpm --filter @workspace/worker exec wrangler secret put GH_TOKEN
+pnpm --filter @shazhou-work/workforce-worker exec wrangler secret put GH_TOKEN
 ```
 
 This configures production, not `.dev.vars` and not GitHub Actions secrets. For
@@ -344,7 +356,7 @@ the owner-specific Worker Secret `GH_TOKEN_<UPPERCASE_OWNER>`, replacing
 owner-name hyphens with underscores:
 
 ```powershell
-pnpm --filter @workspace/worker exec wrangler secret put GH_TOKEN_SILVERMOON_WORK
+pnpm --filter @shazhou-work/workforce-worker exec wrangler secret put GH_TOKEN_SILVERMOON_WORK
 ```
 
 For `silvermoon-work`, select the now-public `task-engine` repository. Configure
@@ -386,7 +398,7 @@ snapshots without this metadata remain explicitly labeled all-author.
    account or environment, create a new namespace:
 
    ```powershell
-   pnpm --filter @workspace/worker exec wrangler kv namespace create STATS
+   pnpm --filter @shazhou-work/workforce-worker exec wrangler kv namespace create STATS
    ```
 
 2. If you created a new namespace, replace its ID in
@@ -398,7 +410,7 @@ snapshots without this metadata remain explicitly labeled all-author.
    snapshot. Subsequent CI deployments use release tags as described below:
 
    ```powershell
-   pnpm --filter @workspace/worker exec wrangler kv key put activity:v1 --binding STATS --path ..\..\.data\snapshot.json --remote
+   pnpm --filter @shazhou-work/workforce-worker exec wrangler kv key put activity:v1 --binding STATS --path ..\..\.data\snapshot.json --remote
    pnpm check
    pnpm run deploy
    ```
@@ -511,10 +523,10 @@ Create a dedicated
   `$env:LOCALAPPDATA\Workforce\auth-secret.clixml`, outside the repository.
 
 ```powershell
-pnpm --filter @workspace/worker exec wrangler secret put AUTH_GITHUB_ID
-pnpm --filter @workspace/worker exec wrangler secret put AUTH_GITHUB_SECRET
+pnpm --filter @shazhou-work/workforce-worker exec wrangler secret put AUTH_GITHUB_ID
+pnpm --filter @shazhou-work/workforce-worker exec wrangler secret put AUTH_GITHUB_SECRET
 # Required only when AUTH_SECRET has not already been provisioned.
-pnpm --filter @workspace/worker exec wrangler secret put AUTH_SECRET
+pnpm --filter @shazhou-work/workforce-worker exec wrangler secret put AUTH_SECRET
 ```
 
 Enter secrets at the masked prompt or use the Cloudflare dashboard; never send

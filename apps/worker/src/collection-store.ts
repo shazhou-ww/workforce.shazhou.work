@@ -5,7 +5,7 @@ import {
   type ActivitySnapshot,
   type DailyActivity,
   type RepositoryActivity,
-} from "@workspace/contracts";
+} from "@shazhou-work/workforce-contracts";
 import type { CollectionConfig } from "./collection-config.js";
 import type {
   Comparison,

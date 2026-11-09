@@ -1,4 +1,4 @@
-import type { ActivitySnapshot } from "@workspace/contracts";
+import type { ActivitySnapshot } from "@shazhou-work/workforce-contracts";
 import { useCallback, useEffect, useState } from "react";
 
 import { Dashboard, type DashboardState } from "./ui.js";

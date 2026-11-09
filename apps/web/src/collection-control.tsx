@@ -3,7 +3,7 @@ import type {
   CollectionAccessResponse,
   CollectionProgressResponse,
   CollectionTriggerResponse,
-} from "@workspace/contracts";
+} from "@shazhou-work/workforce-contracts";
 import { useEffect, useRef, useState } from "react";
 import { ApiError, fetchJson } from "./api.js";
 

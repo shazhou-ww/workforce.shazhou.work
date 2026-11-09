@@ -161,7 +161,7 @@ importers:
       '@fontsource-variable/newsreader':
         specifier: 'catalog:'
         version: 5.3.0
-      '@workspace/contracts':
+      '@shazhou-work/workforce-contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
       react:
@@ -195,10 +195,10 @@ importers:
       '@hono/auth-js':
         specifier: 'catalog:'
         version: 1.1.1(@auth/core@0.41.3)(hono@4.13.13)(react@19.3.1)
-      '@workspace/contracts':
+      '@shazhou-work/workforce-contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
-      '@workspace/web':
+      '@shazhou-work/workforce-web':
         specifier: workspace:*
         version: link:../web
       hono:

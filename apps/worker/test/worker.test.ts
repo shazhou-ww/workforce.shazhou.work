@@ -1,4 +1,7 @@
-import type { BootstrapResponse, HealthResponse } from "@workspace/contracts";
+import type {
+  BootstrapResponse,
+  HealthResponse,
+} from "@shazhou-work/workforce-contracts";
 import { describe, expect, it, vi } from "vitest";
 
 import { createAuthConfig } from "../src/auth.js";

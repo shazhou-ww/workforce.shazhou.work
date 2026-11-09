@@ -6,7 +6,7 @@ import {
   type ActivitySnapshot,
   type CommitActivity,
   type RepositoryActivity,
-} from "@workspace/contracts";
+} from "@shazhou-work/workforce-contracts";
 import { createGitHubClient } from "./github-client.js";
 
 interface PublicRepository {

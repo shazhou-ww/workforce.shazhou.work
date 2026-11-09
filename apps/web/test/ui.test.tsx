@@ -4,7 +4,7 @@ import {
   activityTotals,
   type ActivitySnapshot,
   type RepositoryActivity,
-} from "@workspace/contracts";
+} from "@shazhou-work/workforce-contracts";
 import { renderToStaticMarkup } from "react-dom/server";
 import { act } from "react";
 import { createRoot } from "react-dom/client";

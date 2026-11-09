@@ -8,7 +8,7 @@ import {
   type ActivitySnapshot,
   type CollectionAccessResponse,
   type CollectionProgressResponse,
-} from "@workspace/contracts";
+} from "@shazhou-work/workforce-contracts";
 import { CollectionControl } from "../src/collection-control.js";
 
 const endpoint = "/api/activity/collection";

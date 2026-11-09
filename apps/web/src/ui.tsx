@@ -3,7 +3,7 @@ import {
   type ActivitySnapshot,
   type ActivityTotals,
   type DailyActivity,
-} from "@workspace/contracts";
+} from "@shazhou-work/workforce-contracts";
 import { useState, type ReactNode } from "react";
 
 export type DashboardState =

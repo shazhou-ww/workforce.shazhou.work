@@ -78,6 +78,7 @@ summary:focus-visible {
   gap: 16px;
 }
 .collection-control {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -119,6 +120,72 @@ summary:focus-visible {
 }
 .collection-notice.error {
   color: #b13c3c;
+}
+.collection-performance {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  width: min(390px, calc(100vw - 32px));
+  max-height: min(480px, calc(100dvh - 180px));
+  overflow: auto;
+  padding: 18px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow: 0 12px 32px
+    color-mix(in srgb, var(--color-primary) 16%, transparent);
+  text-align: left;
+  font-size: 12px;
+}
+.performance-toggle {
+  min-height: 36px;
+  padding: 4px 2px;
+  border: 0;
+  background: transparent;
+  color: var(--color-primary);
+  font-size: 13px;
+}
+.collection-performance h2 {
+  margin: 0 0 14px;
+  font-size: 13px;
+  font-weight: 650;
+}
+.collection-performance-totals {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 20px;
+  margin: 0 0 12px;
+}
+.collection-performance dt {
+  color: var(--color-muted);
+}
+.collection-performance dd {
+  margin: 4px 0 0;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.collection-performance summary {
+  padding: 4px 0;
+  cursor: pointer;
+  color: var(--color-primary);
+}
+.collection-performance-phases {
+  margin: 8px 0;
+}
+.collection-performance-phases > div {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 6px 0;
+}
+.collection-performance-phases dd {
+  margin: 0;
+}
+.collection-performance p {
+  margin: 10px 0 0;
+  line-height: 1.6;
 }
 @media (max-width: 600px) {
   .masthead {

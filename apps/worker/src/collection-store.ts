@@ -5,6 +5,9 @@ import {
   type ActivitySnapshot,
   type DailyActivity,
   type RepositoryActivity,
+  collectionPhases,
+  type CollectionPhase,
+  type CollectionPerformance,
 } from "@shazhou-work/workforce-contracts";
 import type { CollectionConfig } from "./collection-config.js";
 import type {
@@ -53,6 +56,18 @@ export interface SyncState {
   history_id: string;
 }
 
+export interface CollectionAttempt {
+  readonly id: string;
+  readonly step: string;
+  readonly phase: CollectionPhase;
+  readonly finishedAt: string;
+  readonly activeMs: number;
+  readonly rest: number;
+  readonly graphql: number;
+  readonly httpErrors: number;
+  readonly networkErrors: number;
+}
+
 export class CollectionStore {
   private readonly db: D1DatabaseSession;
 
@@ -80,6 +95,124 @@ export class CollectionStore {
 
   async batch(statements: D1PreparedStatement[]): Promise<void> {
     await this.db.batch(statements);
+  }
+
+  async recordAttempt(
+    runId: string,
+    attempt: CollectionAttempt,
+  ): Promise<void> {
+    // Failures before a run is created have no parent record to attach metrics to.
+    await this.statement(
+      "INSERT OR IGNORE INTO collection_attempts SELECT ?,id,?,?,?,?,?,?,?,? FROM collection_runs WHERE id=?",
+      attempt.id,
+      attempt.step,
+      attempt.phase,
+      attempt.finishedAt,
+      attempt.activeMs,
+      attempt.rest,
+      attempt.graphql,
+      attempt.httpErrors,
+      attempt.networkErrors,
+      runId,
+    ).run();
+  }
+
+  async startWait(runId: string, name: string): Promise<void> {
+    await this.statement(
+      "INSERT OR IGNORE INTO collection_waits(run_id,name,started_at) VALUES (?,?,?)",
+      runId,
+      name,
+      new Date().toISOString(),
+    ).run();
+  }
+
+  async finishWait(runId: string, name: string): Promise<void> {
+    await this.statement(
+      "UPDATE collection_waits SET finished_at=COALESCE(finished_at,?) WHERE run_id=? AND name=?",
+      new Date().toISOString(),
+      runId,
+      name,
+    ).run();
+  }
+
+  async performance(
+    runId: string,
+    terminal: boolean,
+    now = Date.now(),
+  ): Promise<CollectionPerformance | null> {
+    const run = await this.one<{
+      started_at: string;
+      published_at: string | null;
+    }>("SELECT started_at,published_at FROM collection_runs WHERE id=?", runId);
+    if (!run)
+      throw new Error("Cannot read performance for a missing collection.");
+    const totals = await this.one<{
+      attempts: number;
+      activeMs: number | null;
+      rest: number | null;
+      graphql: number | null;
+      httpErrors: number | null;
+      networkErrors: number | null;
+      retries: number;
+      updatedAt: string | null;
+    }>(
+      "SELECT count(*) AS attempts,sum(active_ms) AS activeMs,sum(rest_requests) AS rest,sum(graphql_requests) AS graphql,sum(http_errors) AS httpErrors,sum(network_errors) AS networkErrors,count(*)-count(DISTINCT step_name) AS retries,max(finished_at) AS updatedAt FROM collection_attempts WHERE run_id=?",
+      runId,
+    );
+    if (!totals)
+      throw new Error("Collection performance query returned no result.");
+    if (totals.attempts === 0) return null;
+    const waits = await this.rows<{
+      started_at: string;
+      finished_at: string | null;
+    }>(
+      "SELECT started_at,finished_at FROM collection_waits WHERE run_id=?",
+      runId,
+    );
+    const phases = await this.rows<{
+      phase: CollectionPhase;
+      attempts: number;
+      activeMs: number;
+    }>(
+      "SELECT phase,count(*) AS attempts,sum(active_ms) AS activeMs FROM collection_attempts WHERE run_id=? GROUP BY phase",
+      runId,
+    );
+    const updatedAt =
+      [
+        totals.updatedAt ?? run.started_at,
+        run.published_at ?? "",
+        ...waits.map((wait) => wait.finished_at ?? wait.started_at),
+      ]
+        .sort()
+        .at(-1) ?? run.started_at;
+    const end = terminal ? Date.parse(updatedAt) : now;
+    return {
+      startedAt: run.started_at,
+      updatedAt,
+      elapsedMs: Math.max(0, end - Date.parse(run.started_at)),
+      activeMs: totals.activeMs ?? 0,
+      restRequests: totals.rest ?? 0,
+      graphqlRequests: totals.graphql ?? 0,
+      httpErrors: totals.httpErrors ?? 0,
+      networkErrors: totals.networkErrors ?? 0,
+      stepRetries: totals.retries,
+      rateLimitWaits: waits.length,
+      rateLimitWaitMs: waits.reduce(
+        (sum, wait) =>
+          sum +
+          Math.max(
+            0,
+            Math.min(
+              end,
+              wait.finished_at ? Date.parse(wait.finished_at) : end,
+            ) - Date.parse(wait.started_at),
+          ),
+        0,
+      ),
+      phases: collectionPhases.flatMap((phase) =>
+        phases.filter((timing) => timing.phase === phase),
+      ),
+    };
   }
 
   async saveConfig(config: CollectionConfig): Promise<string> {
@@ -321,6 +454,42 @@ export class CollectionStore {
       "SELECT * FROM run_repositories WHERE run_id=? ORDER BY repository_id",
       runId,
     );
+  }
+
+  pendingMetadata(runId: string, repositoryIds: readonly number[]) {
+    return this.rows<RunRepository>(
+      "SELECT r.* FROM run_repositories r WHERE run_id=? AND status='pending' AND repository_id IN (SELECT value FROM json_each(?)) AND NOT EXISTS (SELECT 1 FROM discovery_pages d WHERE d.run_id=r.run_id AND d.scope='metadata:' || r.repository_id AND d.page=0) ORDER BY repository_id",
+      runId,
+      JSON.stringify(repositoryIds),
+    );
+  }
+
+  async saveMetadata(
+    repositories: readonly RunRepository[],
+    metadata: readonly RepositoryMetadata[],
+  ): Promise<void> {
+    if (repositories.length !== metadata.length) {
+      throw new Error("Metadata checkpoint does not cover every repository.");
+    }
+    await this.batch(
+      repositories.map((repository, index) =>
+        this.statement(
+          "INSERT OR IGNORE INTO discovery_pages(run_id,scope,page,item_count,payload_json) VALUES (?,?,0,1,?)",
+          repository.run_id,
+          `metadata:${repository.repository_id}`,
+          JSON.stringify(metadata[index]),
+        ),
+      ),
+    );
+  }
+
+  async metadata(runId: string, repositoryId: number) {
+    const row = await this.one<{ payload_json: string }>(
+      "SELECT payload_json FROM discovery_pages WHERE run_id=? AND scope=? AND page=0",
+      runId,
+      `metadata:${repositoryId}`,
+    );
+    return row ? (JSON.parse(row.payload_json) as RepositoryMetadata) : null;
   }
 
   async repository(

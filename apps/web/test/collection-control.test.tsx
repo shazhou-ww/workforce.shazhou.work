@@ -8,6 +8,7 @@ import {
   type ActivitySnapshot,
   type CollectionAccessResponse,
   type CollectionProgressResponse,
+  type CollectionPerformance,
 } from "@shazhou-work/workforce-contracts";
 import { CollectionControl } from "../src/collection-control.js";
 
@@ -40,6 +41,23 @@ const progress: CollectionProgressResponse = {
   completedRepositories: 1,
   totalRepositories: 2,
   until: window.until,
+};
+const performance: CollectionPerformance = {
+  startedAt: window.until,
+  updatedAt: window.until,
+  elapsedMs: 65_250,
+  activeMs: 2350,
+  restRequests: 3,
+  graphqlRequests: 8,
+  httpErrors: 1,
+  networkErrors: 0,
+  stepRetries: 1,
+  rateLimitWaits: 1,
+  rateLimitWaitMs: 60_000,
+  phases: [
+    { phase: "metadata", attempts: 1, activeMs: 2000 },
+    { phase: "history", attempts: 2, activeMs: 350 },
+  ],
 };
 const roots: Root[] = [];
 afterEach(() => {
@@ -86,6 +104,153 @@ async function click(container: HTMLElement, text = "手动采集") {
 }
 
 describe("administrator collection controls", () => {
+  it("refreshes current performance and retains the final metrics after publication", async () => {
+    vi.useFakeTimers();
+    const request = backend(
+      { ...admin, activeRunId: "run-1" },
+      { ...progress, performance },
+    );
+    let polls = 0;
+    const normal = request.getMockImplementation();
+    if (!normal) throw new Error("Missing backend.");
+    request.mockImplementation((input, init) =>
+      typeof input === "string" && input.includes("/runs/")
+        ? Promise.resolve(
+            Response.json({
+              ...progress,
+              performance,
+              status: ++polls === 1 ? "collecting" : "published",
+            }),
+          )
+        : normal(input, init),
+    );
+    const { container, onSnapshot } = await render(request);
+    await click(container, "采集性能");
+    const panel = container.querySelector('[aria-label="采集性能"]');
+    expect(panel?.textContent).toContain("本次采集性能");
+    expect(panel?.textContent).toContain("1 分 5 秒");
+    expect(panel?.textContent).toContain("2.4 秒");
+    expect(panel?.textContent).toContain("仓库信息");
+    expect(panel?.textContent).toContain("350 毫秒");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(onSnapshot).toHaveBeenCalledOnce();
+    expect(panel?.textContent).toContain("最近任务性能");
+    expect(panel?.textContent).toContain("GraphQL 请求8");
+  });
+
+  it("loads the most recent completed task after a page refresh without triggering collection", async () => {
+    const request = backend(
+      { ...admin, latestRunId: "run-1" },
+      { ...progress, status: "published", performance },
+    );
+    const { container, onSnapshot } = await render(request);
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    await click(container, "采集性能");
+    expect(container.textContent).toContain("最近任务性能");
+    expect(container.textContent).toContain("REST 请求3");
+    expect(request.mock.calls.some(([, init]) => init?.method === "POST")).toBe(
+      false,
+    );
+    expect(onSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("shows missing historic metrics explicitly", async () => {
+    const { container } = await render(
+      backend(
+        { ...admin, latestRunId: "old" },
+        { ...progress, status: "published", performance: null },
+      ),
+    );
+    await click(container, "采集性能");
+    expect(container.textContent).toContain("暂无性能记录");
+    expect(container.textContent).not.toContain("REST 请求");
+  });
+
+  it("adopts a recently queued task before it acquires the collection lock", async () => {
+    vi.useFakeTimers();
+    const request = backend(
+      { ...admin, latestRunId: "run-1" },
+      { ...progress, status: "queued", performance },
+    );
+    const { container } = await render(request);
+    await click(container, "采集性能");
+    expect(container.textContent).toContain("本次采集性能");
+    expect(container.querySelector("button")?.disabled).toBe(true);
+    expect(request.mock.calls.some(([, init]) => init?.method === "POST")).toBe(
+      false,
+    );
+  });
+
+  it("does not fetch or display metrics for a non-administrator", async () => {
+    const request = backend({
+      ...admin,
+      canCollect: false,
+      latestRunId: "private-run",
+    });
+    const { container } = await render(request);
+    expect(container.querySelector('[aria-label="采集性能"]')).toBeNull();
+    expect(
+      request.mock.calls.some(
+        ([input]) => typeof input === "string" && input.includes("/runs/"),
+      ),
+    ).toBe(false);
+  });
+
+  it("retries failures when loading historical performance", async () => {
+    const request = backend(
+      { ...admin, latestRunId: "run-1" },
+      { ...progress, status: "published", performance },
+    );
+    const normal = request.getMockImplementation();
+    if (!normal) throw new Error("Missing backend.");
+    let failed = false;
+    request.mockImplementation((input, init) => {
+      if (typeof input === "string" && input.includes("/runs/") && !failed) {
+        failed = true;
+        return Promise.resolve(
+          Response.json({ error: "性能读取失败" }, { status: 500 }),
+        );
+      }
+      return normal(input, init);
+    });
+    const { container } = await render(request);
+    await click(container, "采集性能");
+    expect(container.textContent).toContain("性能读取失败");
+    await click(container, "重试性能指标");
+    expect(container.textContent).toContain("REST 请求3");
+  });
+
+  it("toggles the floating panel and closes on outside clicks or Escape", async () => {
+    const { container } = await render(
+      backend(
+        { ...admin, latestRunId: "run-1" },
+        { ...progress, status: "published", performance },
+      ),
+    );
+    const button = [...container.querySelectorAll("button")].find(
+      (element) => element.textContent === "采集性能",
+    );
+    if (!button) throw new Error("Missing performance toggle");
+    const focus = vi.spyOn(button, "focus");
+    await click(container, "采集性能");
+    expect(button.getAttribute("aria-expanded")).toBe("true");
+    act(() => {
+      document.body.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    });
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    await click(container, "采集性能");
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    });
+    expect(focus).toHaveBeenCalledOnce();
+    expect(button.getAttribute("aria-expanded")).toBe("false");
+    await click(container, "采集性能");
+    await click(container, "采集性能");
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+  });
+
   it.each([
     [{ ...admin, signedIn: false, canCollect: false }, "管理员登录"],
     [

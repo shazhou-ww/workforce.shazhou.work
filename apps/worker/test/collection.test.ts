@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CollectionStore } from "../src/collection-store.js";
 import { createEmailHasher, parseConfig } from "../src/collection-config.js";
 import {
@@ -9,6 +9,7 @@ import {
 import type { Bindings } from "../src/env.js";
 import type { GitHubRepository, RawCommit } from "../src/collection-github.js";
 import { TestD1 } from "./d1.js";
+import { GitHubError } from "../src/github-client.js";
 
 const until = "2026-11-09T04:00:00.000Z";
 const key = "email-key-with-at-least-thirty-two-characters";
@@ -39,6 +40,9 @@ const commit = (index: number, date = until): RawCommit => ({
 const databases: TestD1[] = [];
 const bodyText = (init?: RequestInit) =>
   typeof init?.body === "string" ? init.body : "";
+beforeEach(() => {
+  vi.spyOn(console, "info").mockImplementation(() => {});
+});
 afterEach(() => {
   for (const db of databases.splice(0)) db.sqlite.close();
   vi.restoreAllMocks();
@@ -99,7 +103,11 @@ function github({
       return Promise.resolve(Response.json(owner));
     }
     if (url.includes("/orgs/owner/repos"))
-      return Promise.resolve(Response.json(repos));
+      return Promise.resolve(
+        Response.json(
+          repos.filter((repo) => repo.full_name.startsWith("owner/")),
+        ),
+      );
     if (url.includes("/compare/"))
       return Promise.resolve(
         Response.json({
@@ -113,12 +121,30 @@ function github({
       return Promise.resolve(Response.json(repository));
     const body = JSON.parse(bodyText(init)) as {
       query: string;
-      variables: { name: string };
+      variables: { name: string; owner: string; [name: string]: string };
     };
     const repo =
       repos.find((value) =>
         value.full_name.endsWith(`/${body.variables.name}`),
       ) ?? repository;
+    if (body.query.includes("query MetadataBatch")) {
+      return Promise.resolve(
+        Response.json({
+          data: Object.fromEntries(
+            Object.entries(body.variables)
+              .filter(([key]) => key.startsWith("name"))
+              .map(([key, name]) => {
+                const repo = repos.find(
+                  (value) =>
+                    value.full_name === `${body.variables.owner}/${name}`,
+                );
+                if (!repo) throw new Error("Missing metadata fixture");
+                return [`r${key.slice(4)}`, metadata(head, repo, branch)];
+              }),
+          ),
+        }),
+      );
+    }
     if (body.query.includes("query Metadata"))
       return Promise.resolve(
         Response.json({ data: { repository: metadata(head, repo, branch) } }),
@@ -206,6 +232,311 @@ function params(
 }
 
 describe("D1 collection", () => {
+  it("reduces 69 unchanged repositories from 69 metadata requests to 8 with identical snapshots", async () => {
+    const { env, store, revisionId } = await setup({
+      ...baseConfig,
+      accounts: ["owner", "second"],
+    });
+    const second = { id: 1000, login: "second", type: "Organization" };
+    const repos = [
+      ...Array.from({ length: 68 }, (_, index) => ({
+        ...repository,
+        id: index + 2,
+        full_name: `owner/project-${index}`,
+      })),
+      { ...repository, id: 1001, full_name: "second/project", owner: second },
+    ];
+    function request() {
+      const base = github({ repos });
+      return vi.fn<typeof fetch>().mockImplementation((input, init) => {
+        if (typeof input === "string" && input.endsWith("/users/second"))
+          return Promise.resolve(Response.json(second));
+        if (typeof input === "string" && input.includes("/orgs/second/repos"))
+          return Promise.resolve(
+            Response.json(repos.filter((repo) => repo.owner.id === second.id)),
+          );
+        return base(input, init);
+      });
+    }
+    const scoped = {
+      ...env,
+      GH_TOKEN_OWNER: "owner-token",
+      GH_TOKEN_SECOND: "second-token",
+    };
+    await runCollection(scoped, params(revisionId), steps(), request());
+    const baseline = params(revisionId);
+    const before = request();
+    await runCollection(
+      scoped,
+      baseline,
+      {
+        do: async (name, callback) => {
+          if (!name.startsWith("metadata ")) await callback();
+        },
+      },
+      before,
+    );
+    const optimized = params(revisionId);
+    const after = request();
+    await runCollection(scoped, optimized, steps(), after);
+    const metadataCalls = (calls: typeof after.mock.calls) =>
+      calls.filter(([, init]) => bodyText(init).includes("query Metadata"));
+    expect(metadataCalls(before.mock.calls)).toHaveLength(69);
+    expect(metadataCalls(after.mock.calls)).toHaveLength(8);
+    expect(after).toHaveBeenCalledTimes(10);
+    for (const [, init] of metadataCalls(after.mock.calls)) {
+      const body = JSON.parse(bodyText(init)) as {
+        variables: { owner: string };
+      };
+      expect(new Headers(init?.headers).get("authorization")).toBe(
+        `Bearer ${body.variables.owner === "owner" ? "owner-token" : "second-token"}`,
+      );
+    }
+    const oldSnapshot = await store.snapshot(baseline.runId);
+    const newSnapshot = await store.snapshot(optimized.runId);
+    expect({ ...newSnapshot, generatedAt: oldSnapshot.generatedAt }).toEqual(
+      oldSnapshot,
+    );
+    expect(await store.performance(optimized.runId, true)).toMatchObject({
+      restRequests: 2,
+      graphqlRequests: 8,
+      httpErrors: 0,
+      networkErrors: 0,
+    });
+    expect(
+      (await store.repositories(optimized.runId)).every(
+        (repo) => repo.sync_mode === "reuse",
+      ),
+    ).toBe(true);
+    const summaries = vi
+      .mocked(console.info)
+      .mock.calls.map(([record]) => record as unknown);
+    const activeMs: unknown = expect.any(Number);
+    const phases: unknown = expect.objectContaining({
+      metadata: { attempts: 8, activeMs },
+    });
+    expect(summaries).toContainEqual(
+      expect.objectContaining({
+        event: "collection.invocation",
+        runId: optimized.runId,
+        requests: { graphql: 8, rest: 2, httpErrors: 0, networkErrors: 0 },
+        phases,
+      }),
+    );
+  });
+
+  it("resumes atomically saved metadata without fetching changed heads again", async () => {
+    const { env, store, revisionId } = await setup();
+    const repos = [
+      repository,
+      { ...repository, id: 3, full_name: "owner/other" },
+    ];
+    const request = github({ repos });
+    const checkpoint = steps();
+    let interrupt = true;
+    const durable: CollectionSteps = {
+      do: (name, callback) =>
+        checkpoint.do(name, async () => {
+          await callback();
+          if (name.startsWith("metadata ") && interrupt) {
+            interrupt = false;
+            throw new Error("Interrupted after metadata write");
+          }
+        }),
+    };
+    const run = params(revisionId);
+    await expect(runCollection(env, run, durable, request)).rejects.toThrow(
+      "metadata write",
+    );
+    expect(await store.pendingMetadata(run.runId, [2, 3])).toEqual([]);
+    const changed = github({ repos, head: sha(2) });
+    await runCollection(env, run, steps(), changed);
+    expect(
+      changed.mock.calls.some(([, init]) =>
+        bodyText(init).includes("Metadata"),
+      ),
+    ).toBe(false);
+    expect(
+      (await store.repositories(run.runId)).map((repo) => repo.head_sha),
+    ).toEqual([sha(1), sha(1)]);
+    expect((await store.run(run.runId)).status).toBe("published");
+    expect(await store.performance(run.runId, true)).toMatchObject({
+      graphqlRequests: 3,
+    });
+    await expect(
+      store.saveMetadata(await store.repositories(run.runId), []),
+    ).rejects.toThrow("every repository");
+  });
+
+  it.each([null, "private", "replaced"])(
+    "rejects an invalid metadata alias (%s) without checkpointing partial results or publishing",
+    async (invalid) => {
+      const { env, store, revisionId, put } = await setup();
+      const repos = [
+        repository,
+        { ...repository, id: 3, full_name: "owner/other" },
+      ];
+      await runCollection(env, params(revisionId), steps(), github({ repos }));
+      const base = github({ repos });
+      const request = vi
+        .fn<typeof fetch>()
+        .mockImplementation((input, init) => {
+          if (bodyText(init).includes("MetadataBatch")) {
+            return Promise.resolve(
+              Response.json({
+                data: {
+                  r0: metadata(),
+                  r1:
+                    invalid === null
+                      ? null
+                      : {
+                          ...metadata(sha(1), repos[1]),
+                          isPrivate: invalid === "private",
+                          databaseId: invalid === "replaced" ? 99 : 3,
+                        },
+                },
+              }),
+            );
+          }
+          return base(input, init);
+        });
+      const run = params(revisionId);
+      await expect(runCollection(env, run, steps(), request)).rejects.toThrow(
+        "Repository",
+      );
+      expect(await store.pendingMetadata(run.runId, [2, 3])).toHaveLength(2);
+      expect(put).toHaveBeenCalledOnce();
+      expect(await store.ownsRun(run.runId)).toBe(true);
+    },
+  );
+
+  it("records each rate-limited attempt and numeric headers without logging secrets", async () => {
+    const { env, revisionId } = await setup();
+    const base = github();
+    let limited = true;
+    const request = vi.fn<typeof fetch>().mockImplementation((input, init) => {
+      if (typeof input === "string" && input.includes("/orgs/owner/repos")) {
+        if (limited) {
+          limited = false;
+          return Promise.resolve(
+            Response.json(
+              { message: "rate limit exceeded" },
+              {
+                status: 429,
+                headers: {
+                  "x-ratelimit-limit": "60",
+                  "x-ratelimit-remaining": "0",
+                  "x-ratelimit-used": "60",
+                  "x-ratelimit-reset": "2000000000",
+                },
+              },
+            ),
+          );
+        }
+        return Promise.resolve(
+          Response.json([repository], {
+            headers: { "x-ratelimit-limit": "private-response-text" },
+          }),
+        );
+      }
+      return base(input, init);
+    });
+    const retry: CollectionSteps = {
+      async do(_name, callback) {
+        try {
+          await callback();
+        } catch (error) {
+          if (!(error instanceof GitHubError) || error.retryAt === null)
+            throw error;
+          await callback();
+        }
+      },
+    };
+    const run = params(revisionId);
+    await runCollection(env, run, retry, request);
+    const records = vi
+      .mocked(console.info)
+      .mock.calls.map(([record]) => record as unknown);
+    expect(records).toContainEqual(
+      expect.objectContaining({
+        event: "collection.github_request",
+        status: 429,
+        api: "rest",
+        authenticated: false,
+        rateLimit: { limit: 60, remaining: 0, used: 60, reset: 2000000000 },
+      }),
+    );
+    expect(records).toContainEqual(
+      expect.objectContaining({
+        event: "collection.github_request",
+        status: 200,
+        rateLimit: { limit: null, remaining: null, used: null, reset: null },
+      }),
+    );
+    expect(records).toContainEqual(
+      expect.objectContaining({
+        event: "collection.invocation",
+        outcome: "completed",
+        requests: { rest: 3, graphql: 2, httpErrors: 1, networkErrors: 0 },
+      }),
+    );
+    const logged = JSON.stringify(records);
+    expect(logged).not.toContain("private-response-text");
+    expect(logged).not.toContain("test-token");
+    expect(logged).not.toContain("author@example.test");
+    expect(logged).not.toContain("Authorization");
+  });
+
+  it("reports network failures and callback timing while preserving the error", async () => {
+    const { env, revisionId } = await setup();
+    const request = vi
+      .fn<typeof fetch>()
+      .mockRejectedValue(new Error("network unavailable"));
+    const run = params(revisionId);
+    await expect(runCollection(env, run, steps(), request)).rejects.toThrow(
+      "network unavailable",
+    );
+    const activeMs: unknown = expect.any(Number);
+    const phases: unknown = expect.objectContaining({
+      discovery: { attempts: 1, activeMs },
+    });
+
+    expect(
+      vi.mocked(console.info).mock.calls.map(([record]) => record as unknown),
+    ).toContainEqual(
+      expect.objectContaining({
+        event: "collection.invocation",
+        outcome: "failed",
+        requests: { rest: 1, graphql: 0, httpErrors: 0, networkErrors: 1 },
+        phases,
+      }),
+    );
+  });
+
+  it("surfaces metric persistence errors without hiding a simultaneous collection failure", async () => {
+    const { env, store, revisionId } = await setup();
+    const record = store.recordAttempt.bind(store);
+    vi.spyOn(CollectionStore.prototype, "recordAttempt").mockImplementation(
+      (runId, attempt) =>
+        attempt.step.startsWith("resolve account")
+          ? Promise.reject(new Error("metrics unavailable"))
+          : record(runId, attempt),
+    );
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const request = vi
+      .fn<typeof fetch>()
+      .mockRejectedValue(new Error("network unavailable"));
+    const run = params(revisionId);
+    await expect(
+      runCollection(env, run, steps(), request),
+    ).rejects.toMatchObject({
+      errors: [
+        expect.objectContaining({ message: "network unavailable" }),
+        expect.objectContaining({ message: "metrics unavailable" }),
+      ],
+    });
+  });
+
   it("uses the owner's credential for discovery, metadata, full history, comparisons and missing commit details", async () => {
     const { env, store, revisionId } = await setup();
     const scoped: Bindings = {
@@ -662,7 +993,9 @@ describe("D1 collection", () => {
   it("discovers additional account pages without resetting existing repository watermarks", async () => {
     const { env, store, revisionId } = await setup();
     await runCollection(env, params(revisionId), steps(), github());
-    const base = github();
+    const base = github({
+      repos: [repository, { ...repository, id: 3, full_name: "owner/new" }],
+    });
     const request = vi.fn<typeof fetch>().mockImplementation((input, init) => {
       if (typeof input === "string" && input.includes("/orgs/owner/repos")) {
         return Promise.resolve(
@@ -671,23 +1004,6 @@ describe("D1 collection", () => {
               ? Array.from({ length: 100 }, () => repository)
               : [{ ...repository, id: 3, full_name: "owner/new" }],
           ),
-        );
-      }
-      if (bodyText(init).includes("Metadata")) {
-        const body = JSON.parse(bodyText(init)) as {
-          variables: { name: string };
-        };
-        return Promise.resolve(
-          Response.json({
-            data: {
-              repository: metadata(
-                sha(1),
-                body.variables.name === "new"
-                  ? { ...repository, id: 3, full_name: "owner/new" }
-                  : repository,
-              ),
-            },
-          }),
         );
       }
       return base(input, init);

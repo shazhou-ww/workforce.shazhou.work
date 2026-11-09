@@ -5,6 +5,7 @@ import {
   readCommitDetails,
   readHistory,
   readMetadata,
+  readMetadataBatch,
 } from "../src/collection-github.js";
 import {
   createGitHubClient,
@@ -21,6 +22,111 @@ function client(body: unknown, status = 200) {
 }
 
 describe("incremental GitHub validation", () => {
+  it("batches metadata using variables and checks every repository identity", async () => {
+    const metadata = {
+      databaseId: 1,
+      isPrivate: false,
+      nameWithOwner: "owner/repo",
+      url: "https://github.com/owner/repo",
+      description: null,
+      isFork: false,
+      isArchived: true,
+      defaultBranchRef: null,
+    };
+    const request = vi.fn<typeof fetch>().mockResolvedValue(
+      Response.json({
+        data: {
+          r0: metadata,
+          r1: {
+            ...metadata,
+            databaseId: 2,
+            nameWithOwner: "owner/renamed",
+            defaultBranchRef: {
+              name: "main",
+              target: {
+                oid: head,
+                committedDate: "2026-11-09T00:00:00Z",
+                messageHeadline: "Latest",
+                url: `https://github.com/owner/renamed/commit/${head}`,
+              },
+            },
+          },
+        },
+      }),
+    );
+    const result = await readMetadataBatch(
+      createGitHubClient("test-token", request),
+      [repository, { repository_id: 2, full_name: 'owner/repo"quoted' }],
+    );
+    expect(result[0]).toMatchObject({
+      head: null,
+      defaultBranch: null,
+      latestCommit: null,
+    });
+    expect(result[1]).toMatchObject({
+      name: "owner/renamed",
+      head,
+      defaultBranch: "main",
+    });
+    const payload = request.mock.calls[0]?.[1]?.body;
+    if (typeof payload !== "string") throw new Error("Missing GraphQL payload");
+    const body = JSON.parse(payload) as {
+      query: string;
+      variables: Record<string, string>;
+    };
+    expect(body.variables).toEqual({
+      owner: "owner",
+      name0: "repo",
+      name1: 'repo"quoted',
+    });
+    expect(body.query).not.toContain('repo"quoted');
+    expect(request).toHaveBeenCalledOnce();
+  });
+
+  it.each([0, 11])(
+    "rejects metadata batch size %s before requesting GitHub",
+    async (size) => {
+      const request = vi.fn<typeof fetch>();
+      await expect(
+        readMetadataBatch(
+          createGitHubClient("test-token", request),
+          Array.from({ length: size }, () => repository),
+        ),
+      ).rejects.toThrow("1-10 repositories");
+      expect(request).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects mixed owners before making a credential-scoped request", async () => {
+    const request = vi.fn<typeof fetch>();
+    await expect(
+      readMetadataBatch(createGitHubClient("test-token", request), [
+        repository,
+        { repository_id: 2, full_name: "other/repo" },
+      ]),
+    ).rejects.toThrow("one repository owner");
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("rejects missing aliases and partial GraphQL responses", async () => {
+    const repositories = [
+      repository,
+      { repository_id: 2, full_name: "owner/other" },
+    ];
+    await expect(
+      readMetadataBatch(client({ data: {} }), repositories),
+    ).rejects.toThrow("Repository");
+    await expect(
+      readMetadataBatch(
+        client({
+          data: { r0: { databaseId: 1, isPrivate: false } },
+          errors: [{ type: "FORBIDDEN", message: "private-message" }],
+        }),
+        repositories,
+      ),
+    ).rejects.toMatchObject({ status: 403 });
+  });
+
   it.each(["User", "Organization"])(
     "resolves a public %s without requesting private profile access",
     async (type) => {

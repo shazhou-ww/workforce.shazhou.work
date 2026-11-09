@@ -33,11 +33,18 @@ manualCollectionApi.get("/", async (context) => {
   const user = loginEnabled ? await getAuthUser(context) : null;
   const canCollect = canCollectActivity(user, context.env);
   let activeRunId: string | null = null;
+  let latestRunId: string | null = null;
   if (canCollect && context.env.DB) {
     const state = await new CollectionStore(context.env.DB).one<{
       active_run_id: string | null;
     }>("SELECT active_run_id FROM collection_state WHERE id=1");
     activeRunId = state?.active_run_id ?? null;
+    const latest = await new CollectionStore(context.env.DB).one<{
+      id: string;
+    }>(
+      "SELECT id FROM collection_runs ORDER BY started_at DESC,id DESC LIMIT 1",
+    );
+    latestRunId = latest?.id ?? null;
   }
   return context.json<CollectionAccessResponse>({
     loginEnabled,
@@ -45,6 +52,7 @@ manualCollectionApi.get("/", async (context) => {
     canCollect,
     displayName: user?.session.user?.name ?? null,
     activeRunId,
+    ...(canCollect ? { latestRunId } : {}),
   });
 });
 
@@ -110,7 +118,8 @@ manualCollectionApi.get("/runs/:id", verifyAuth(), async (context) => {
   if (
     run.status === "queued" ||
     run.status === "collecting" ||
-    run.status === "ready"
+    run.status === "ready" ||
+    (run.status === "failed" && (await store.ownsRun(run.id)))
   ) {
     const state = await (await context.env.COLLECTION.get(run.id)).status();
     waiting =
@@ -119,6 +128,14 @@ manualCollectionApi.get("/runs/:id", verifyAuth(), async (context) => {
       state.status === "waitingForPause";
     if (state.status === "errored") status = "failed";
     if (state.status === "terminated") status = "cancelled";
+    if (
+      run.status === "failed" &&
+      ["queued", "running", "waiting", "paused", "waitingForPause"].includes(
+        state.status,
+      )
+    ) {
+      status = state.status === "queued" ? "queued" : "collecting";
+    }
   }
   return context.json<CollectionProgressResponse>({
     runId: run.id,
@@ -127,5 +144,9 @@ manualCollectionApi.get("/runs/:id", verifyAuth(), async (context) => {
     completedRepositories: repositories.complete ?? 0,
     totalRepositories: repositories.total,
     until: run.until_at,
+    performance: await store.performance(
+      run.id,
+      ["published", "failed", "blocked", "cancelled"].includes(status),
+    ),
   });
 });

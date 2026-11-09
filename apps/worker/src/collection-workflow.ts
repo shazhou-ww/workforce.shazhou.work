@@ -50,10 +50,19 @@ export class ActivityCollection extends WorkflowEntrypoint<
             console.warn(
               `Collection step ${name} rate limited; sleeping until reset.`,
             );
-            await step.sleepUntil(
-              `${name} rate limit ${attempt}`,
-              result.retryAt + 1000,
-            );
+            const waitName = `${name} rate limit ${attempt}`;
+            const store = this.env.DB ? new CollectionStore(this.env.DB) : null;
+            if (store) {
+              await step.do(`${waitName} started`, {}, () =>
+                store.startWait(event.payload.runId, waitName),
+              );
+            }
+            await step.sleepUntil(waitName, result.retryAt + 1000);
+            if (store) {
+              await step.do(`${waitName} finished`, {}, () =>
+                store.finishWait(event.payload.runId, waitName),
+              );
+            }
           }
           throw new NonRetryableError(
             "GitHub rate limit retry budget exhausted.",

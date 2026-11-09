@@ -2,6 +2,8 @@ import { createEmailHasher } from "./collection-config.js";
 import {
   readAccount,
   readMetadata,
+  readMetadataBatch,
+  metadataBatchSize,
   readHistory,
   readComparison,
   readCommitDetails,
@@ -9,7 +11,7 @@ import {
   type GitHubRepository,
   type Comparison,
 } from "./collection-github.js";
-import { CollectionStore } from "./collection-store.js";
+import { CollectionStore, type RunRepository } from "./collection-store.js";
 import {
   createGitHubClient,
   createOwnerGitHubClient,
@@ -17,6 +19,7 @@ import {
   createPublicGitHubClient,
 } from "./github-client.js";
 import type { Bindings } from "./env.js";
+import type { CollectionPhase } from "@shazhou-work/workforce-contracts";
 
 export interface CollectionParams {
   readonly runId: string;
@@ -42,6 +45,134 @@ export async function runCollection(
   params: CollectionParams,
   steps: CollectionSteps,
   request: typeof fetch = fetch,
+): Promise<void> {
+  const started = performance.now();
+  const requests = { rest: 0, graphql: 0, httpErrors: 0, networkErrors: 0 };
+  const metrics = env.DB ? new CollectionStore(env.DB) : null;
+  const phases: Record<string, { attempts: number; activeMs: number }> = {};
+  let currentStep: string | null = null;
+  let outcome: "failed" | "completed" = "failed";
+  const measuredRequest: typeof fetch = async (input, init) => {
+    const url =
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.href
+          : input.url;
+    const api = url.endsWith("/graphql") ? "graphql" : "rest";
+    requests[api] += 1;
+    const start = performance.now();
+    let response: Response | undefined;
+    try {
+      response = await request(input, init);
+      return response;
+    } finally {
+      if (!response) requests.networkErrors += 1;
+      else if (!response.ok) requests.httpErrors += 1;
+      console.info({
+        event: "collection.github_request",
+        runId: params.runId,
+        step: currentStep,
+        api,
+        authenticated: new Headers(init?.headers).has("authorization"),
+        status: response?.status ?? null,
+        durationMs: performance.now() - start,
+        rateLimit: {
+          limit: rateLimitHeader(response, "x-ratelimit-limit"),
+          remaining: rateLimitHeader(response, "x-ratelimit-remaining"),
+          used: rateLimitHeader(response, "x-ratelimit-used"),
+          reset: rateLimitHeader(response, "x-ratelimit-reset"),
+        },
+      });
+    }
+  };
+  const measuredSteps: CollectionSteps = {
+    do: (name, callback) =>
+      steps.do(name, async () => {
+        currentStep = name;
+        const phase: CollectionPhase = name.startsWith("metadata ")
+          ? "metadata"
+          : name.includes("pin and plan")
+            ? "planning"
+            : name.includes("aggregate")
+              ? "aggregation"
+              : name.startsWith("repository ")
+                ? "history"
+                : name.includes("publication") ||
+                    name.includes("snapshot") ||
+                    name.includes("collection ready")
+                  ? "publication"
+                  : "discovery";
+        const timing = (phases[phase] ??= { attempts: 0, activeMs: 0 });
+        timing.attempts += 1;
+        const start = performance.now();
+        const before = { ...requests };
+        const attemptId = crypto.randomUUID();
+        let failure: unknown;
+        let completed = false;
+        try {
+          await callback();
+          completed = true;
+        } catch (error) {
+          failure = error;
+        }
+        const activeMs = performance.now() - start;
+        timing.activeMs += activeMs;
+        currentStep = null;
+        if (metrics) {
+          try {
+            await metrics.recordAttempt(params.runId, {
+              id: attemptId,
+              step: name,
+              phase,
+              finishedAt: new Date().toISOString(),
+              activeMs,
+              rest: requests.rest - before.rest,
+              graphql: requests.graphql - before.graphql,
+              httpErrors: requests.httpErrors - before.httpErrors,
+              networkErrors: requests.networkErrors - before.networkErrors,
+            });
+          } catch (error) {
+            console.error("Failed to persist collection performance.", error);
+            if (!completed)
+              throw new AggregateError(
+                [failure, error],
+                "Collection step and performance recording both failed.",
+                { cause: error },
+              );
+            throw error;
+          }
+        }
+        if (!completed) throw failure;
+      }),
+  };
+  try {
+    await collect(env, params, measuredSteps, measuredRequest);
+    outcome = "completed";
+  } finally {
+    console.info({
+      event: "collection.invocation",
+      runId: params.runId,
+      outcome,
+      wallMs: performance.now() - started,
+      requests,
+      phases,
+    });
+  }
+}
+
+function rateLimitHeader(response: Response | undefined, name: string) {
+  const value = response?.headers.get(name);
+  if (!value) return null;
+  const number = Number(value);
+  return Number.isSafeInteger(number) && number >= 0 ? number : null;
+}
+
+async function collect(
+  env: Bindings,
+  params: CollectionParams,
+  steps: CollectionSteps,
+  request: typeof fetch,
 ): Promise<void> {
   if (!env.DB)
     throw new Error("The collection D1 binding DB is not configured.");
@@ -192,13 +323,44 @@ export async function runCollection(
     });
   }
 
-  for (const original of await store.repositories(params.runId)) {
+  const repositories = await store.repositories(params.runId);
+  const byOwner = new Map<string, RunRepository[]>();
+  for (const repository of repositories) {
+    const owner = (repository.full_name.split("/")[0] ?? "").toLowerCase();
+    const owned = byOwner.get(owner) ?? [];
+    owned.push(repository);
+    byOwner.set(owner, owned);
+  }
+  for (const [owner, owned] of byOwner) {
+    for (let offset = 0; offset < owned.length; offset += metadataBatchSize) {
+      const batch = owned.slice(offset, offset + metadataBatchSize);
+      await steps.do(
+        `metadata ${owner} batch ${offset / metadataBatchSize}`,
+        async () => {
+          const pending = await store.pendingMetadata(
+            params.runId,
+            batch.map((repository) => repository.repository_id),
+          );
+          const first = pending[0];
+          if (!first) return;
+          const metadata = await readMetadataBatch(
+            clientForRepository(first.full_name),
+            pending,
+          );
+          await store.saveMetadata(pending, metadata);
+        },
+      );
+    }
+  }
+  for (const original of repositories) {
     const label = `repository ${original.repository_id}`;
     const repositoryClient = clientForRepository(original.full_name);
     await steps.do(`${label} pin and plan`, async () => {
       const repo = await store.repository(params.runId, original.repository_id);
       if (repo.status !== "pending") return;
-      const metadata = await readMetadata(repositoryClient, repo);
+      const metadata =
+        (await store.metadata(params.runId, repo.repository_id)) ??
+        (await readMetadata(repositoryClient, repo));
       const previous = await store.syncState(repo.repository_id);
       let mode: "full" | "incremental" | "reuse" = "full";
       let comparison: Comparison | null = null;

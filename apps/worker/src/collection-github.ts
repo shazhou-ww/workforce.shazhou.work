@@ -58,6 +58,36 @@ export interface Comparison {
 const commitFields =
   "oid committedDate additions deletions author { email user { login } }";
 
+export const metadataBatchSize = 10;
+const metadataFields = `
+  databaseId isPrivate nameWithOwner url description isFork isArchived
+  defaultBranchRef { name target { ... on Commit { oid committedDate messageHeadline url } } }
+`;
+
+type RepositoryReference = {
+  readonly repository_id: number;
+  readonly full_name: string;
+};
+
+interface MetadataResult {
+  databaseId: number;
+  isPrivate: boolean;
+  nameWithOwner: string;
+  url: string;
+  description: string | null;
+  isFork: boolean;
+  isArchived: boolean;
+  defaultBranchRef: {
+    name: string;
+    target: {
+      oid: string;
+      committedDate: string;
+      messageHeadline: string;
+      url: string;
+    };
+  } | null;
+}
+
 function parts(fullName: string) {
   const [owner, name] = fullName.split("/");
   return { owner, name };
@@ -84,37 +114,65 @@ export async function readAccount(
 
 export async function readMetadata(
   client: GitHubClient,
-  repository: { readonly repository_id: number; readonly full_name: string },
+  repository: RepositoryReference,
 ): Promise<RepositoryMetadata> {
   const result = await client.graphql<{
-    repository: {
-      databaseId: number;
-      isPrivate: boolean;
-      nameWithOwner: string;
-      url: string;
-      description: string | null;
-      isFork: boolean;
-      isArchived: boolean;
-      defaultBranchRef: {
-        name: string;
-        target: {
-          oid: string;
-          committedDate: string;
-          messageHeadline: string;
-          url: string;
-        };
-      } | null;
-    } | null;
+    repository: MetadataResult | null;
   }>(
     `query Metadata($owner: String!, $name: String!) {
       repository(owner: $owner, name: $name) {
-        databaseId isPrivate nameWithOwner url description isFork isArchived
-        defaultBranchRef { name target { ... on Commit { oid committedDate messageHeadline url } } }
+        ${metadataFields}
       }
     }`,
     parts(repository.full_name),
   );
-  const repo = result.repository;
+  return metadataFromResult(result.repository, repository);
+}
+
+export async function readMetadataBatch(
+  client: GitHubClient,
+  repositories: readonly RepositoryReference[],
+): Promise<RepositoryMetadata[]> {
+  const first = repositories[0];
+  if (!first || repositories.length > metadataBatchSize) {
+    throw new Error(
+      `Metadata batches require 1-${metadataBatchSize} repositories.`,
+    );
+  }
+  const owner = parts(first.full_name).owner;
+  if (
+    repositories.some(
+      (repository) =>
+        parts(repository.full_name).owner?.toLowerCase() !==
+        owner?.toLowerCase(),
+    )
+  ) {
+    throw new Error("Metadata batches must share one repository owner.");
+  }
+  if (repositories.length === 1) {
+    return [await readMetadata(client, first)];
+  }
+  const variables = Object.fromEntries(
+    repositories.map((repository, index) => [
+      `name${index}`,
+      parts(repository.full_name).name,
+    ]),
+  );
+  const result = await client.graphql<Record<string, MetadataResult | null>>(
+    `query MetadataBatch($owner: String!, ${repositories.map((_, index) => `$name${index}: String!`).join(", ")}) {
+      ${repositories.map((_, index) => `r${index}: repository(owner: $owner, name: $name${index}) { ${metadataFields} }`).join("\n")}
+    }`,
+    { owner, ...variables },
+  );
+  return repositories.map((repository, index) =>
+    metadataFromResult(result[`r${index}`], repository),
+  );
+}
+
+function metadataFromResult(
+  repo: MetadataResult | null | undefined,
+  repository: RepositoryReference,
+): RepositoryMetadata {
   if (!repo || repo.isPrivate || repo.databaseId !== repository.repository_id) {
     throw new Error(
       "Repository is unavailable, replaced, or no longer public.",

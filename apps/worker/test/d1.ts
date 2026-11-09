@@ -74,12 +74,17 @@ export class TestD1 implements D1Database {
 
   constructor() {
     this.sqlite.exec("PRAGMA foreign_keys=ON");
-    this.sqlite.exec(
-      readFileSync(
-        new URL("../migrations/0001_collection.sql", import.meta.url),
-        "utf8",
-      ),
-    );
+    for (const migration of [
+      "0001_collection.sql",
+      "0002_collection_performance.sql",
+    ]) {
+      this.sqlite.exec(
+        readFileSync(
+          new URL(`../migrations/${migration}`, import.meta.url),
+          "utf8",
+        ),
+      );
+    }
   }
 
   prepare(sql: string): D1PreparedStatement {

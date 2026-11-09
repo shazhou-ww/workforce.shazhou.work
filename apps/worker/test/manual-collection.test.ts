@@ -125,6 +125,165 @@ async function setup() {
 }
 
 describe("manual collection session authorization", () => {
+  it("retains task performance across reads, deduplicates recorded attempts, and exposes it only to administrators", async () => {
+    const { request, store, revisionId, adminCookie, cookie } = await setup();
+    await store.begin("measured", revisionId, "2026-11-09T08:00:00Z", "key");
+    await store
+      .statement(
+        "UPDATE collection_runs SET started_at=? WHERE id=?",
+        "2026-11-09T08:00:00.000Z",
+        "measured",
+      )
+      .run();
+    const attempt = {
+      id: "attempt-1",
+      step: "metadata owner batch 0",
+      phase: "metadata" as const,
+      finishedAt: "2026-11-09T08:00:01.000Z",
+      activeMs: 10,
+      rest: 0,
+      graphql: 1,
+      httpErrors: 0,
+      networkErrors: 0,
+    };
+    await store.recordAttempt("measured", attempt);
+    await store.recordAttempt("measured", attempt);
+    await store.recordAttempt("measured", {
+      ...attempt,
+      id: "attempt-2",
+      activeMs: 20,
+      httpErrors: 1,
+    });
+    await store.recordAttempt("measured", {
+      ...attempt,
+      id: "attempt-3",
+      step: "publish complete KV snapshot",
+      phase: "publication",
+      finishedAt: "2026-11-09T08:00:10.000Z",
+      activeMs: 5,
+      rest: 1,
+      graphql: 0,
+    });
+    await store.startWait("measured", "metadata rate limit 0");
+    await store.startWait("measured", "metadata rate limit 0");
+    await store
+      .statement(
+        "UPDATE collection_waits SET started_at=?,finished_at=? WHERE run_id=?",
+        "2026-11-09T08:00:02.000Z",
+        "2026-11-09T08:00:05.000Z",
+        "measured",
+      )
+      .run();
+    await store.finishWait("measured", "metadata rate limit 0");
+    await store
+      .statement(
+        "UPDATE collection_runs SET status='published',published_at=? WHERE id=?",
+        "2026-11-09T08:00:10.000Z",
+        "measured",
+      )
+      .run();
+    const expected = {
+      startedAt: "2026-11-09T08:00:00.000Z",
+      updatedAt: "2026-11-09T08:00:10.000Z",
+      elapsedMs: 10_000,
+      activeMs: 35,
+      restRequests: 1,
+      graphqlRequests: 2,
+      httpErrors: 1,
+      networkErrors: 0,
+      stepRetries: 1,
+      rateLimitWaits: 1,
+      rateLimitWaitMs: 3000,
+      phases: [
+        { phase: "metadata", attempts: 2, activeMs: 30 },
+        { phase: "publication", attempts: 1, activeMs: 5 },
+      ],
+    };
+    for (let read = 0; read < 2; read += 1) {
+      expect(
+        await (await request("/runs/measured", "GET", adminCookie)).json(),
+      ).toMatchObject({ performance: expected });
+    }
+    expect(await (await request("", "GET", adminCookie)).json()).toMatchObject({
+      latestRunId: "measured",
+    });
+    expect(
+      await store.performance(
+        "measured",
+        false,
+        Date.parse("2026-11-09T08:00:20Z"),
+      ),
+    ).toMatchObject({ elapsedMs: 20_000 });
+    const visitor = await request("/runs/measured");
+    expect(visitor.status).toBe(401);
+    const other = await cookie({ sub: "999", githubAccountId: "999" });
+    expect((await request("/runs/measured", "GET", other)).status).toBe(403);
+    const publicAccess = await (await request()).json();
+    expect(publicAccess).not.toHaveProperty("latestRunId");
+    expect(publicAccess).not.toHaveProperty("performance");
+    expect(JSON.stringify(expected)).not.toContain("token");
+  });
+
+  it("reports old runs without metrics explicitly and measures an ongoing wait", async () => {
+    const { store, revisionId, request, adminCookie } = await setup();
+    await store.begin("old", revisionId, "2026-11-09T08:00:00Z", "key");
+    expect(
+      await (await request("/runs/old", "GET", adminCookie)).json(),
+    ).toMatchObject({ performance: null });
+    await store
+      .statement(
+        "UPDATE collection_runs SET started_at=? WHERE id=?",
+        "2026-11-09T08:00:00.000Z",
+        "old",
+      )
+      .run();
+    await store.recordAttempt("old", {
+      id: "attempt",
+      step: "discover owner page 1",
+      phase: "discovery",
+      finishedAt: "2026-11-09T08:00:01.000Z",
+      activeMs: 1,
+      rest: 1,
+      graphql: 0,
+      httpErrors: 1,
+      networkErrors: 0,
+    });
+    await store.startWait("old", "wait");
+    await store
+      .statement(
+        "UPDATE collection_waits SET started_at=? WHERE run_id=?",
+        "2026-11-09T08:00:02.000Z",
+        "old",
+      )
+      .run();
+    expect(
+      await store.performance("old", false, Date.parse("2026-11-09T08:00:07Z")),
+    ).toMatchObject({ elapsedMs: 7000, rateLimitWaitMs: 5000 });
+    await expect(store.performance("missing", false)).rejects.toThrow(
+      "missing collection",
+    );
+  });
+
+  it("keeps polling a live Workflow even when a replay previously marked the locked run failed", async () => {
+    const { store, revisionId, request, adminCookie, status } = await setup();
+    await store.begin("resuming", revisionId, "2026-11-09T08:00:00Z", "key");
+    await store.failed("resuming", "Previous invocation interrupted");
+    expect(
+      await (await request("/runs/resuming", "GET", adminCookie)).json(),
+    ).toMatchObject({
+      status: "collecting",
+      waiting: true,
+    });
+    status.mockResolvedValueOnce({ status: "queued" });
+    expect(
+      await (await request("/runs/resuming", "GET", adminCookie)).json(),
+    ).toMatchObject({ status: "queued" });
+    status.mockResolvedValueOnce({ status: "errored" });
+    expect(
+      await (await request("/runs/resuming", "GET", adminCookie)).json(),
+    ).toMatchObject({ status: "failed" });
+  });
+
   it("reports actual Workflow failures and pauses even before the persisted run state changes", async () => {
     const { request, store, revisionId, adminCookie, status } = await setup();
     await store.enqueue("pending", revisionId, "2026-11-09T08:00:00Z");

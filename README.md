@@ -134,6 +134,52 @@ Diverged/rewound history, branch changes, or an unavailable comparison base
 rebuild the reachable history. A known SHA or a commit timestamp is never used
 as a pagination stop.
 
+Metadata and default-branch heads are fetched serially in GraphQL batches of at
+most 10 repositories belonging to the same owner, using that owner's credential.
+All results in a batch must pass the existing repository-ID and
+public-visibility checks before any metadata is checkpointed. Checkpoints are
+written atomically to D1 and reused after retries or Workflow replay; planning
+and history progress remain per repository. A failed batch never publishes a
+partial snapshot.
+
+Structured Worker logs with event `collection.github_request` record every
+actual HTTP attempt (including retries), REST/GraphQL classification, duration,
+authentication presence, HTTP status, and numeric GitHub rate-limit headers.
+They never log credentials, request bodies, or raw response data.
+`collection.invocation` summarizes request counts and active callback time for
+discovery, metadata, planning, history, aggregation, and publication. Counts are
+per invocation, not durable run totals: Workflow replay skips completed
+callbacks and a resumed invocation reports only its new work. Active time
+excludes Workflow rate-limit sleeps; invocation wall time can include
+orchestration waits. Compare equivalent repository scopes and synchronization
+modes across runs, and sum invocation counts when evaluating a run with multiple
+resumes. REST requests and GraphQL requests are counts, not interchangeable
+GitHub rate-limit points.
+
+Administrators can open the floating performance panel from the collection
+controls without expanding the page header. Click outside, press Escape, or use
+the same button to close it. It shows elapsed and active processing time,
+REST/GraphQL request counts, extra step executions, rate-limit wait counts/time,
+and per-phase timings. Running tasks refresh with the progress poll; completed
+metrics survive page refreshes. The protected progress API returns
+`performance: null` for old tasks without recorded attempts, not fabricated zero
+measurements. Public visitors receive neither task IDs nor performance data.
+
+Migration `0002_collection_performance.sql` persists one immutable metrics row
+per actual callback execution, with a unique attempt ID. Replaying a completed
+Workflow step does not execute or record the callback again; an actual retry
+counts its newly issued requests. Rate-limit waits use stable run/step keys and
+durable start/finish markers, so replay cannot double-count them. Active timings
+exclude the metrics write itself and Workflow sleeps. Terminal elapsed time ends
+at the last recorded measurement or publication timestamp; for a cancelled task
+it is the recorded span, not an exact cancellation timestamp. Only numeric
+request counts and timings are stored, never tokens or raw GitHub responses.
+Apply the pending D1 migrations before deploying code that records metrics:
+
+```powershell
+pnpm --filter @shazhou-work/workforce-worker exec wrangler d1 migrations apply DB --remote
+```
+
 Account identities are reused from D1; a previously unknown account uses an
 explicitly public profile request without an Authorization header. Only login,
 account type and database ID are persisted. Public account identities can also

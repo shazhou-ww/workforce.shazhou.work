@@ -11,7 +11,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { App } from "../src/app.js";
+import { PublicProfile } from "../src/profile.js";
 import { Dashboard } from "../src/ui.js";
 import { commitLevel, YearlyHeatmap } from "../src/yearly-heatmap.js";
 
@@ -66,7 +66,7 @@ function chartLineSegments(container: HTMLElement) {
 }
 
 describe("dashboard data loading", () => {
-  it("refreshes immediately after manual collection and retains the newer snapshot if an older request finishes late", async () => {
+  it("refreshes a public profile without exposing owner collection controls", async () => {
     vi.useFakeTimers();
     Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
     const updated = {
@@ -74,77 +74,32 @@ describe("dashboard data loading", () => {
       until: "2026-11-05T09:00:00.000Z",
       generatedAt: "2026-11-05T09:00:00.000Z",
     };
-    let resolveOld: (response: Response) => void = () => {
-      throw new Error("Periodic refresh was not started");
-    };
     let activityCalls = 0;
-    const request = vi.fn<typeof fetch>().mockImplementation((input, init) => {
-      if (input === "/api/platform/access")
-        return Promise.resolve(
-          Response.json({
-            signedIn: false,
-            status: "signed_out",
-            isAdmin: false,
-          }),
-        );
-      if (input === "/api/activity/collection")
-        return Promise.resolve(
-          Response.json(
-            init?.method === "POST"
-              ? { runId: "run" }
-              : {
-                  loginEnabled: true,
-                  signedIn: true,
-                  canCollect: true,
-                  displayName: "Admin",
-                  activeRunId: null,
-                },
-          ),
-        );
-      if (input === "/api/activity/collection/runs/run")
-        return Promise.resolve(
-          Response.json({
-            runId: "run",
-            status: "published",
-            waiting: false,
-            completedRepositories: 1,
-            totalRepositories: 1,
-            until: updated.until,
-          }),
-        );
-      if (input === "/api/activity") {
-        activityCalls += 1;
-        return activityCalls === 1
-          ? Promise.resolve(Response.json(snapshot))
-          : new Promise<Response>((resolve) => {
-              resolveOld = resolve;
-            });
-      }
-      return Promise.resolve(Response.json(updated));
-    });
+    const request = vi.fn<typeof fetch>().mockImplementation(() =>
+      Promise.resolve(
+        Response.json({
+          login: "owner",
+          snapshot: ++activityCalls === 1 ? snapshot : updated,
+        }),
+      ),
+    );
     vi.stubGlobal("fetch", request);
     const container = document.createElement("div");
     const root = createRoot(container);
     try {
       await act(async () => {
-        root.render(<App />);
+        root.render(<PublicProfile slug="owner" />);
       });
       await act(async () => {
         await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
       });
-      const button = [...container.querySelectorAll("button")].find(
-        (element) => element.textContent === "手动采集",
-      );
-      if (!button) throw new Error("Manual control is missing.");
-      await act(async () => {
-        button.click();
-      });
-      expect(container.textContent).toContain("统计已更新");
       expect(container.textContent).toContain("11/05 17:00");
-      await act(async () => {
-        resolveOld(Response.json(snapshot));
-      });
-      expect(container.textContent).toContain("11/05 17:00");
+      expect(container.querySelectorAll("h1")).toHaveLength(1);
+      expect(container.querySelector(".page-actions")).toBeNull();
+      expect(container.textContent).not.toContain("手动采集");
+      expect(
+        request.mock.calls.every(([url]) => url === "/api/profiles/owner"),
+      ).toBe(true);
     } finally {
       act(() => {
         root.unmount();
@@ -152,34 +107,19 @@ describe("dashboard data loading", () => {
     }
   });
 
-  it("keeps a complete snapshot visible when a later automatic refresh fails", async () => {
+  it("clears public results if a profile is made private between reads", async () => {
     vi.useFakeTimers();
     let activityCalls = 0;
     vi.stubGlobal(
       "fetch",
-      vi.fn<typeof fetch>().mockImplementation((input) => {
-        if (input === "/api/platform/access")
-          return Promise.resolve(
-            Response.json({
-              signedIn: false,
-              status: "signed_out",
-              isAdmin: false,
-            }),
-          );
-        if (input === "/api/activity/collection")
-          return Promise.resolve(
-            Response.json({
-              loginEnabled: false,
-              signedIn: false,
-              canCollect: false,
-              displayName: null,
-              activeRunId: null,
-            }),
-          );
+      vi.fn<typeof fetch>().mockImplementation(() => {
         return Promise.resolve(
           ++activityCalls === 1
-            ? Response.json(snapshot)
-            : Response.json({ error: "暂时不可用" }, { status: 503 }),
+            ? Response.json({ login: "owner", snapshot })
+            : Response.json(
+                { error: "Not public", code: "profile_not_found" },
+                { status: 404 },
+              ),
         );
       }),
     );
@@ -187,14 +127,13 @@ describe("dashboard data loading", () => {
     const root = createRoot(container);
     try {
       await act(async () => {
-        root.render(<App />);
+        root.render(<PublicProfile slug="owner" />);
       });
       await act(async () => {
         await vi.advanceTimersByTimeAsync(5 * 60 * 1000 + 3000);
       });
-      expect(container.textContent).toContain("owner/project");
-      expect(container.textContent).toContain("已保留上次完整结果");
-      expect(container.textContent).toContain("暂时不可用");
+      expect(container.textContent).not.toContain("owner/project");
+      expect(container.textContent).toContain("此主页未公开或不存在");
     } finally {
       act(() => {
         root.unmount();
@@ -205,35 +144,27 @@ describe("dashboard data loading", () => {
   it("loads the public API, refreshes after five minutes, and cancels work on unmount", async () => {
     vi.useFakeTimers();
     Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
-    const request = vi.fn<typeof fetch>().mockImplementation(async (input) =>
-      Response.json(
-        input === "/api/activity/collection"
-          ? {
-              loginEnabled: false,
-              signedIn: false,
-              canCollect: false,
-              displayName: null,
-              activeRunId: null,
-            }
-          : snapshot,
-      ),
-    );
+    const request = vi
+      .fn<typeof fetch>()
+      .mockImplementation(async () =>
+        Response.json({ login: "owner", snapshot }),
+      );
     vi.stubGlobal("fetch", request);
     const container = document.createElement("div");
     const root = createRoot(container);
     try {
       await act(async () => {
-        root.render(<App />);
+        root.render(<PublicProfile slug="owner" />);
       });
       expect(container.textContent).toContain("owner/project");
       expect(
-        request.mock.calls.filter(([url]) => url === "/api/activity"),
+        request.mock.calls.filter(([url]) => url === "/api/profiles/owner"),
       ).toHaveLength(1);
       await act(async () => {
         await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
       });
       expect(
-        request.mock.calls.filter(([url]) => url === "/api/activity"),
+        request.mock.calls.filter(([url]) => url === "/api/profiles/owner"),
       ).toHaveLength(2);
     } finally {
       act(() => {
@@ -263,7 +194,7 @@ describe("dashboard data loading", () => {
       const root = createRoot(container);
       try {
         await act(async () => {
-          root.render(<App />);
+          root.render(<PublicProfile slug="owner" />);
         });
         await act(async () => vi.advanceTimersByTimeAsync(3000));
         expect(container.textContent).toContain(message);
@@ -284,7 +215,7 @@ describe("dashboard data loading", () => {
       const root = createRoot(container);
       try {
         await act(async () => {
-          root.render(<App />);
+          root.render(<PublicProfile slug="owner" />);
         });
         expect(container.textContent).toContain("Network unavailable");
       } finally {
@@ -314,7 +245,7 @@ describe("dashboard data loading", () => {
       vi.stubGlobal("fetch", request);
       const root = createRoot(document.createElement("div"));
       act(() => {
-        root.render(<App />);
+        root.render(<PublicProfile slug="owner" />);
       });
       act(() => {
         root.unmount();

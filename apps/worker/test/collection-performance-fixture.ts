@@ -27,7 +27,8 @@ export async function performanceFixture(size = 70, initialize = true) {
   const db = new TestD1();
   const store = new CollectionStore(db, fixtureUser);
   db.sqlite.exec(`
-    INSERT INTO personal_users VALUES ('${fixtureUser}','active','2026-01-01',NULL,NULL);
+    INSERT INTO personal_users(id,status,created_at,last_refresh_at,last_scheduled_at)
+      VALUES ('${fixtureUser}','active','2026-01-01',NULL,NULL);
     INSERT INTO personal_identities VALUES ('github','100','${fixtureUser}');
     INSERT INTO personal_state(id) VALUES ('${fixtureUser}');
     INSERT INTO collection_configs(id) VALUES ('${fixtureUser}');

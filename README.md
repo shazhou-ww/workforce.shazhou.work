@@ -1,8 +1,7 @@
 # Workforce
 
-GitHub activity dashboard for **workforce.shazhou.work**, with a preserved
-public view and invitation-only personal workspaces, derived with git-lineage
-from
+GitHub activity dashboard for **workforce.shazhou.work**, with invitation-only
+personal workspaces and opt-in public profiles, derived with git-lineage from
 [preset-cloudflare-fullstack](https://github.com/shazhou-ww/preset-cloudflare-fullstack).
 React/Vite supplies the interface, a Hono Cloudflare Worker supplies the API,
 Cloudflare Workflows collects GitHub history into D1, and Workers KV stores the
@@ -110,12 +109,17 @@ rounds. Persistent failures remain visible with a manual read-retry action;
 authentication failures stop recovery and clear private results instead of
 retaining access.
 
-The top row places 30-day statistics beside the yearly heatmap; the existing
-composite chart spans the row below. Additions and deletions share one
-statistic. "涉及项目" counts repositories with at least one commit in the
-selected day or 30-day period, including zero-line-change commits, independently
-of repository search and the zero-change toggle. Narrow screens stack the
-summaries and allow the heatmap to scroll horizontally.
+The dashboard uses one compact page heading for the title, scope, refresh/share
+actions and collection timestamp. The global header contains only branding,
+configuration, administrator management when authorized, and sign-out. One
+shared data surface places 30-day statistics beside the yearly heatmap, with the
+composite chart below; the project list is an unboxed section. Owner and visitor
+views use the same layout, but visitors have no management or refresh actions.
+Additions and deletions share one statistic. "涉及项目" counts repositories with
+at least one commit in the selected day or 30-day period, including
+zero-line-change commits, independently of repository search and the zero-change
+toggle. Narrow screens stack the summaries and allow the heatmap to scroll
+horizontally.
 
 The heatmap has no period selector, totals, or date-selection linkage. Each cell
 shows its Beijing date, weekday and exact commit count on hover, focus or tap.
@@ -166,31 +170,54 @@ same deep tone. Weekend backgrounds use a fixed neutral light gray.
 Addition/deletion and status colors retain their independent semantic meanings.
 No runtime theme picker is required.
 
-The public dashboard does not require OAuth secrets or sign-in. Personal
-workspaces require sign-in and a current platform invitation; authentication
-alone does not grant access. OAuth APIs remain available, with `/api/me` still
-protected. To use them, copy `apps/worker/.dev.vars.example` to `.dev.vars`,
-generate a real `AUTH_SECRET`, and configure the desired providers and callback
-URLs as described in the template. Providers are optional when serving only the
-public dashboard.
+Public personal profiles do not require visitors to sign in. Personal workspaces
+require sign-in and a current platform invitation; authentication alone does not
+grant access. OAuth APIs remain available, with `/api/me` still protected. To
+use them, copy `apps/worker/.dev.vars.example` to `.dev.vars`, generate a real
+`AUTH_SECRET`, and configure the desired providers and callback URLs as
+described in the template.
 
 Authentication uses the branded Chinese `/signin` and `/signout` pages. Existing
 `/api/auth/signin` and `/api/auth/signout` links redirect to these pages; OAuth
 callbacks remain under `/api/auth/callback/*`. Forms POST to Auth.js with its
 cookie-backed CSRF token, and return destinations are validated by Auth.js.
-Signing out requires confirmation; cancelling returns to the public dashboard
+Signing out requires confirmation; cancelling returns to the personal homepage
 without changing the session. Login does not grant collection permissions:
 server-side administrator checks remain authoritative.
 
 ## Invitation-only personal workspaces
 
-Each authorized user owns one configuration, its collection tasks, and private
-results. The public homepage has one explicit server-configured exception:
-`PUBLIC_ACTIVITY_GITHUB_ID=242885595` maps the original maintainer's immutable
-GitHub identity to their complete personal result. This setting is independent
-of the administrator allowlist; adding an administrator never publishes their
-results. There are no cross-user aggregates, comparisons, teams, rankings, or
-automatically public personal dashboards.
+The homepage `/` opens the current user's personal statistics, or an
+access/login screen for visitors. Existing `?personal=1` and
+`?personal=configure` links still open the personal space and configuration
+respectively. The old independent public dashboard no longer has a frontend
+entry; its existing collection APIs and data are retained for compatibility, not
+migrated into anyone's profile.
+
+Each authorized user owns one configuration, collection tasks, and results.
+Profiles are private by default. In **主页分享**, users can explicitly publish
+their last complete snapshot at `/u/<github-login>` and later make it private.
+Visitors can read activity statistics, repository owners, and public repository
+details, but not configuration, emails, credentials, invitations, task state, or
+collection performance. No user directory or cross-user comparison is added.
+Sharing publishes future complete snapshots too; configuration changes do not
+replace a previous snapshot until collection succeeds. The assigned address uses
+the connected GitHub login at publication time (lowercase); reconnecting after a
+rename and publishing again updates it. Address conflicts fail explicitly.
+
+Anonymous `GET /api/profiles/:slug` checks the saved opt-in and active user
+status on every request and returns `Cache-Control: no-store`; private, unknown
+and suspended profiles all return 404. Disabling sharing invalidates subsequent
+reads immediately. Already-open visitor pages recheck every five minutes and
+clear results on a failed read; previously downloaded copies cannot be recalled.
+Apply `0004_public_profiles.sql` before running the updated Worker; existing
+users remain private. The retained compatibility API `/api/activity` has one
+explicit server-configured exception: `PUBLIC_ACTIVITY_GITHUB_ID=242885595` maps
+the original maintainer's immutable GitHub identity to their complete personal
+result. This setting is independent of the administrator allowlist; adding an
+administrator never publishes their results. It remains separate from the opt-in
+`/u/<github-login>` profiles and has no frontend entry. This release preserves
+that existing production API.
 
 The top-level personal configuration button opens a modal panel, not a sidebar
 or a separate configuration route. Its primary GitHub account comes from OAuth
@@ -230,6 +257,8 @@ into another user's space.
 | `GET /api/platform/access`                            | Current qualification, administrator flag, GitHub connection and limits                    |
 | `GET/PUT /api/personal/config`                        | Read or save only the current user's versioned configuration                               |
 | `GET /api/personal/activity`                          | Read the last complete private result and configuration staleness                          |
+| `GET/PUT /api/personal/profile`                       | Read or change the current user's opt-in public profile (`enabled` boolean)                |
+| `GET /api/profiles/:slug`                             | Read only an active user's explicitly published profile; no authentication required        |
 | `GET/POST /api/personal/collection`                   | Inspect personal tasks or request a refresh                                                |
 | `GET /api/personal/collection/:runId`                 | Inspect a task belonging to the current user                                               |
 | `GET /api/personal/github`                            | Discover authorized joined organizations and public repository suggestions                 |
@@ -747,12 +776,12 @@ dashboard; do not extend collection to private data without access control.
 
 ## Manual collection in the dashboard
 
-The public dashboard stays readable without signing in. Its header provides
-administrator sign-in; authenticated authorized users see **手动采集**. The
-button is disabled while starting or monitoring a run, shows repository progress
-and rate-limit waits, and refreshes the dashboard immediately after a complete
-snapshot becomes visible. Failed collection or refresh retains the previous
-complete data; an older in-flight response cannot overwrite a newer snapshot.
+The personal page heading provides **刷新我的统计** for the current authorized
+user. It is disabled while a run is starting, active, or cooling down. Progress
+and failures stay below the single page heading; completed collection refreshes
+the statistics without leaving the page. Visitors to a public profile never
+receive refresh or task controls. The legacy public collection API and its
+administrator authorization are retained without a frontend entry.
 
 For the D1-backed homepage, only the configured source owner can use this
 control, with a current personal session and live qualification. It starts and

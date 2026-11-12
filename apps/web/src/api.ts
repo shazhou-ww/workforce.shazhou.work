@@ -62,6 +62,9 @@ const personalErrorMessages: Readonly<Record<string, string>> = {
   bootstrap_protected: "引导管理员不能在此停用。",
   not_found: "任务或邀请不存在，或当前账号无权查看，请重新读取。",
   unavailable: "个人服务暂时不可用，请稍后重试或联系管理员。",
+  profile_invalid: "主页公开设置无效，请重新选择或重新连接 GitHub。",
+  profile_unavailable: "主页地址已被占用或个人资格已停用，请重新读取设置。",
+  profile_not_found: "此主页未公开或不存在。",
 };
 
 const configFieldLabels: Readonly<Record<string, string>> = {
@@ -122,6 +125,7 @@ export async function fetchJson<T>(
     const personal =
       pathname === "/api/platform/access" ||
       pathname?.startsWith("/api/personal/") ||
+      pathname?.startsWith("/api/profiles/") ||
       pathname === "/api/admin/invitations" ||
       pathname?.startsWith("/api/admin/invitations/");
     let code: string | undefined;

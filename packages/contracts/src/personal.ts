@@ -55,6 +55,15 @@ export interface PersonalActivityResponse {
   readonly stale: boolean;
 }
 
+export interface PersonalProfileResponse {
+  readonly publicPath: string | null;
+}
+
+export interface PublicProfileResponse {
+  readonly login: string;
+  readonly snapshot: ActivitySnapshot | null;
+}
+
 export interface PersonalCollectionResponse {
   readonly activeRunId: string | null;
   readonly latestRun:

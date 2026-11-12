@@ -104,7 +104,11 @@ Read-only browser requests retry transient network failures and HTTP
 Authentication rejections and mutations are never retried automatically. If
 collection-result reads still fail, "重试读取采集结果" resumes reading the
 existing task rather than starting another collection; the previous complete
-snapshot remains visible.
+snapshot remains visible. Personal task polling additionally resumes transient
+read outages after 15, 30, and 60 seconds, with a maximum of three recovery
+rounds. Persistent failures remain visible with a manual read-retry action;
+authentication failures stop recovery and clear private results instead of
+retaining access.
 
 The top row places 30-day statistics beside the yearly heatmap; the existing
 composite chart spans the row below. Additions and deletions share one

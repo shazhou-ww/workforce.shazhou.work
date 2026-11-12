@@ -103,6 +103,7 @@ export function PersonalDashboard({
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
     let publicationReads = 0;
+    let readFailures = 0;
     const poll = async () => {
       try {
         const progress = await fetchJson<
@@ -132,6 +133,7 @@ export function PersonalDashboard({
           } else {
             setActivity(response);
             acceptSnapshot(response.snapshot);
+            setError(null);
             setNotice("采集完成，个人统计已更新。");
             setCollection((previous) =>
               previous ? { ...previous, activeRunId: null } : previous,
@@ -152,6 +154,8 @@ export function PersonalDashboard({
           setRetry((value) => value + 1);
           return;
         }
+        readFailures = 0;
+        setError(null);
         timer = setTimeout(
           () => {
             void poll();
@@ -168,6 +172,17 @@ export function PersonalDashboard({
             setActivity(null);
             setCollection(null);
             setState({ kind: "error", message: cause.message });
+          } else if (
+            readFailures < 3 &&
+            (cause instanceof TypeError ||
+              (cause instanceof ApiError &&
+                [500, 502, 503, 504].includes(cause.status)))
+          ) {
+            const delay = 15_000 * 2 ** readFailures;
+            readFailures += 1;
+            timer = setTimeout(() => {
+              void poll();
+            }, delay);
           }
         }
       }

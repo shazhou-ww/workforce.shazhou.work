@@ -239,6 +239,12 @@ the app access, then refresh discovery. The application does not bypass those
 policies or change organization access automatically. Manual public account
 scopes remain available.
 
+Saving a personal scope uses the collector's public discovery rules: users and
+organizations are resolved separately, organization repositories come from the
+explicitly public directory, and configured owner credentials are reused.
+Authorization failures remain explicit rather than silently retrying with a
+different credential.
+
 GitHub access credentials are encrypted server-side in D1 with AES-GCM using a
 domain-separated HKDF key derived from `AUTH_SECRET`. Rotating that secret
 invalidates existing sessions and requires GitHub reconnection. There is no new

@@ -46,6 +46,13 @@ describe("personal API error messages", () => {
       "read:org",
       "accounts",
     ],
+    ["/api/personal/config", "github_rate_limited", "频率上限", "accounts"],
+    [
+      "/api/personal/config",
+      "repository_identity_changed",
+      "所属账号",
+      "accounts",
+    ],
     [
       "/api/personal/github/repository?name=owner%2Fproject",
       "repository_not_found",

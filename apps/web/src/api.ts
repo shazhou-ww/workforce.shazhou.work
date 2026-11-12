@@ -33,10 +33,14 @@ const personalErrorMessages: Readonly<Record<string, string>> = {
     "需要 read:org 权限才能读取已加入的组织；原有选择已保留，请补充组织授权。",
   github_access_denied:
     "GitHub 拒绝访问，可能受组织策略、权限或限流影响；原有选择已保留，请检查授权或稍后重试。",
+  github_rate_limited:
+    "GitHub 请求达到频率上限，请等待限流重置后重试；原配置未改变。",
   github_unavailable:
     "GitHub 暂时不可用，无法完成读取或校验；原有选择已保留，请稍后重试。",
   repository_not_found:
     "仓库或账号不存在，或当前授权无法查看；请检查名称与访问权限。",
+  repository_identity_changed:
+    "仓库所属账号已变化，请刷新账号信息并核对范围后再保存。",
   repository_not_public:
     "指定仓库不是公开仓库；仅支持公开仓库，请修改纳入列表。",
   repository_invalid: "仓库名称无效，请使用 owner/name 格式。",

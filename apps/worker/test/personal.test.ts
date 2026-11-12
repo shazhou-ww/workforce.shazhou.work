@@ -198,6 +198,8 @@ function githubFetch(
           },
         ),
       );
+    if (url.endsWith("/users/primary"))
+      return Promise.resolve(Response.json(publicRepository.owner));
     if (url.includes("/user/orgs"))
       return Promise.resolve(
         Response.json([
@@ -1087,6 +1089,8 @@ describe("personal configuration, discovery and isolation", () => {
       "fetch",
       vi.fn().mockImplementation((input: string) => {
         const url = new URL(input);
+        if (url.pathname === "/users/primary")
+          return Promise.resolve(Response.json(publicRepository.owner));
         const page = Number(url.searchParams.get("page") ?? 1);
         return Promise.resolve(
           Response.json(
@@ -1166,6 +1170,205 @@ describe("personal configuration, discovery and isolation", () => {
       repositories: 200,
       historyCommits: 50_000,
       refreshCooldownSeconds: 900,
+    });
+  });
+
+  it("validates users and organizations through the collector's public discovery and owner credential routes", async () => {
+    const { env } = fixture();
+    const id = await user(env);
+    const profiles = {
+      primary: publicRepository.owner,
+      "public-empty": { id: 301, login: "public-empty", type: "Organization" },
+      "public-org": { id: 302, login: "public-org", type: "Organization" },
+    };
+    const cache = new CollectionStore(env.DB!);
+    await cache.batch([
+      cache.accountStatement(profiles.primary),
+      cache.accountStatement(profiles["public-org"]),
+    ]);
+    const orgRepositories = ["renamed", "kept"].map((name, index) => ({
+      ...publicRepository,
+      id: 8000 + index,
+      full_name: `public-org/${name}`,
+      owner: profiles["public-org"],
+    }));
+    const request = vi.fn<typeof fetch>().mockImplementation((input, init) => {
+      const url = new URL(
+        input instanceof Request ? input.url : input.toString(),
+      );
+      const authorization = new Headers(init?.headers).get("authorization");
+      const profile = Object.values(profiles).find(
+        (account) => url.pathname === `/users/${account.login}`,
+      );
+      if (profile) {
+        expect(authorization).toBeNull();
+        return Promise.resolve(Response.json(profile));
+      }
+      if (url.pathname === "/users/primary/repos") {
+        expect(authorization).toBe("Bearer server-token");
+        expect(url.searchParams.get("type")).toBe("owner");
+        return Promise.resolve(
+          Response.json(
+            Array.from({ length: 68 }, (_, index) => ({
+              ...publicRepository,
+              id: 1000 + index,
+              full_name: `primary/repo-${index}`,
+            })),
+          ),
+        );
+      }
+      if (url.pathname === "/orgs/public-empty/repos") {
+        expect(authorization).toBeNull();
+        expect(url.searchParams.get("type")).toBe("public");
+        return Promise.resolve(Response.json([]));
+      }
+      if (url.pathname === "/orgs/public-org/repos") {
+        expect(authorization).toBe("Bearer organization-discovery-token");
+        expect(url.searchParams.get("type")).toBe("public");
+        return Promise.resolve(Response.json(orgRepositories));
+      }
+      if (url.pathname.startsWith("/repos/public-org/")) {
+        expect(authorization).toBe("Bearer organization-discovery-token");
+        return Promise.resolve(
+          Response.json(
+            orgRepositories[url.pathname.endsWith("/kept") ? 1 : 0],
+          ),
+        );
+      }
+      return Promise.resolve(Response.json({}, { status: 403 }));
+    });
+    vi.stubGlobal("fetch", request);
+    const response = await call(
+      { ...env, GH_TOKEN_PUBLIC_ORG: "organization-discovery-token" },
+      "/personal/config",
+      await session(id),
+      "PUT",
+      {
+        ...config,
+        repositoryMode: "all_owned_public",
+        accounts: ["primary", "public-empty", "public-org"],
+        includeRepositories: ["public-org/kept"],
+        excludeRepositories: ["public-org/old-name"],
+      },
+    );
+    expect(response.status).toBe(200);
+    expect(
+      request.mock.calls
+        .filter(([input]) =>
+          new URL(
+            input instanceof Request ? input.url : input.toString(),
+          ).pathname.match(/^\/users\/[^/]+$/),
+        )
+        .map(
+          ([input]) =>
+            new URL(input instanceof Request ? input.url : input.toString())
+              .pathname,
+        ),
+    ).toEqual(["/users/public-empty"]);
+    expect(
+      request.mock.calls.some(([input]) =>
+        new URL(
+          input instanceof Request ? input.url : input.toString(),
+        ).pathname.match(/^\/users\/public-(empty|org)\/repos$/),
+      ),
+    ).toBe(false);
+  });
+
+  it.each([
+    [403, "github_access_denied", 403],
+    [429, "github_rate_limited", 429],
+    [404, "repository_not_found", 404],
+    [401, "collection_unavailable", 503],
+  ] as const)(
+    "preserves organization discovery HTTP %i failures without changing credentials or the saved config",
+    async (status, code, expectedStatus) => {
+      const { env } = fixture();
+      const id = await user(env);
+      const store = new CollectionStore(env.DB!, id);
+      const revisionId = await store.saveConfig(config);
+      const calls: string[] = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn<typeof fetch>().mockImplementation((input, init) => {
+          const url = new URL(
+            input instanceof Request ? input.url : input.toString(),
+          );
+          if (url.pathname === "/users/public-org") {
+            expect(new Headers(init?.headers).has("authorization")).toBe(false);
+            return Promise.resolve(
+              Response.json({
+                id: 302,
+                login: "public-org",
+                type: "Organization",
+              }),
+            );
+          }
+          calls.push(url.pathname);
+          expect(url.pathname).toBe("/orgs/public-org/repos");
+          expect(new Headers(init?.headers).get("authorization")).toBe(
+            "Bearer organization-discovery-token",
+          );
+          return Promise.resolve(
+            Response.json(
+              { message: "Resource not accessible by personal access token" },
+              { status },
+            ),
+          );
+        }),
+      );
+      const response = await call(
+        { ...env, GH_TOKEN_PUBLIC_ORG: "organization-discovery-token" },
+        "/personal/config",
+        await session(id),
+        "PUT",
+        {
+          ...config,
+          repositoryMode: "all_owned_public",
+          accounts: ["public-org"],
+          includeRepositories: [],
+        },
+      );
+      expect(response.status).toBe(expectedStatus);
+      expect(await response.json()).toMatchObject({ code });
+      expect(calls).toEqual(["/orgs/public-org/repos"]);
+      expect((await store.activeConfig()).revisionId).toBe(revisionId);
+    },
+  );
+
+  it("rejects account discovery whose repository owner identity changed instead of silently skipping repositories", async () => {
+    const { env } = fixture();
+    const id = await user(env);
+    const base = githubFetch();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockImplementation((input, init) => {
+        const url = input instanceof Request ? input.url : input.toString();
+        return url.includes("/users/primary/repos")
+          ? Promise.resolve(
+              Response.json([
+                {
+                  ...publicRepository,
+                  owner: { ...publicRepository.owner, id: 9999 },
+                },
+              ]),
+            )
+          : base(input, init);
+      }),
+    );
+    const response = await call(
+      env,
+      "/personal/config",
+      await session(id),
+      "PUT",
+      {
+        ...config,
+        repositoryMode: "all_owned_public",
+        includeRepositories: [],
+      },
+    );
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      code: "repository_identity_changed",
     });
   });
 

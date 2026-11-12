@@ -24,6 +24,18 @@ import { CollectionInputError, parseConfig } from "./collection-config.js";
 import { CollectionStore } from "./collection-store.js";
 import type { Bindings } from "./env.js";
 import {
+  readAccount,
+  type GitHubAccount,
+  type GitHubRepository,
+} from "./collection-github.js";
+import {
+  createGitHubClient,
+  createOrganizationGitHubClient,
+  createOwnerGitHubClient,
+  createPublicGitHubClient,
+  GitHubError,
+} from "./github-client.js";
+import {
   assertPersonalActive,
   database,
   decryptCredential,
@@ -698,24 +710,35 @@ async function validateScope(
   env: Bindings,
   config: ReturnType<typeof parseConfig>,
 ) {
-  const token = env.GH_TOKEN;
-  if (!token)
+  if (!env.GH_TOKEN?.trim())
     throw new PersonalError(
       "collection_unavailable",
       "Collection credentials are unavailable.",
       503,
     );
+  const client = createGitHubClient(env.GH_TOKEN);
+  const publicClient = createPublicGitHubClient();
+  const store = database(env);
+  const repositoryClient = (name: string) =>
+    createOwnerGitHubClient(env, name.split("/")[0] ?? "");
+  const excludedNames = new Set(config.excludeRepositories);
   const excludedIds = new Set<number>();
   for (const name of config.excludeRepositories)
     excludedIds.add(
       publicRepo(
-        (await githubRequest<GitHubRepo>(token, `/repos/${name}`)).data,
+        await validateGitHubRequest(() =>
+          repositoryClient(name).github<GitHubRepo>(`/repos/${name}`),
+        ),
       ).id,
     );
   const repositories = new Set<number>();
   const add = (repo: GitHubRepo) => {
     publicRepo(repo);
-    if (!excludedIds.has(repo.id)) repositories.add(repo.id);
+    if (
+      !excludedNames.has(repo.full_name.toLowerCase()) &&
+      !excludedIds.has(repo.id)
+    )
+      repositories.add(repo.id);
     if (repositories.size > personalLimits.repositories)
       throw new PersonalError(
         "repository_limit",
@@ -724,15 +747,32 @@ async function validateScope(
       );
   };
   if (config.repositoryMode === "all_owned_public") {
-    for (const account of config.accounts) {
+    for (const login of config.accounts) {
+      const account =
+        (await store.one<GitHubAccount>(
+          "SELECT github_id AS id,login,account_type AS type FROM accounts WHERE login=? COLLATE NOCASE",
+          login,
+        )) ??
+        (await validateGitHubRequest(() => readAccount(publicClient, login)));
+      const discoveryClient =
+        account.type === "Organization"
+          ? createOrganizationGitHubClient(env, account.login)
+          : client;
       for (let page = 1; page <= 11; page++) {
-        const rows = (
-          await githubRequest<GitHubRepo[]>(
-            token,
-            `/users/${account}/repos?type=owner&per_page=100&page=${page}`,
-          )
-        ).data;
-        rows.forEach(add);
+        const rows = await validateGitHubRequest(() =>
+          discoveryClient.github<(GitHubRepo & GitHubRepository)[]>(
+            account.type === "Organization"
+              ? `/orgs/${account.login}/repos?type=public&per_page=100&page=${page}`
+              : `/users/${account.login}/repos?type=owner&per_page=100&page=${page}`,
+          ),
+        );
+        if (rows.some((repo) => repo.owner.id !== account.id))
+          throw new PersonalError(
+            "repository_identity_changed",
+            "Repository owner identity changed. Refresh the configured account before saving.",
+            409,
+          );
+        rows.filter((repo) => !repo.private).forEach(add);
         if (rows.length < 100) break;
         if (page === 11)
           throw new PersonalError(
@@ -744,7 +784,51 @@ async function validateScope(
     }
   }
   for (const name of config.includeRepositories)
-    add((await githubRequest<GitHubRepo>(token, `/repos/${name}`)).data);
+    add(
+      await validateGitHubRequest(() =>
+        repositoryClient(name).github<GitHubRepo>(`/repos/${name}`),
+      ),
+    );
+}
+
+async function validateGitHubRequest<T>(
+  operation: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (error instanceof GitHubError) {
+      if (error.retryAt !== null)
+        throw new PersonalError(
+          "github_rate_limited",
+          "GitHub collection rate limit reached. Retry after the provider reset; saved selections are unchanged.",
+          429,
+        );
+      if (error.status === 403)
+        throw new PersonalError(
+          "github_access_denied",
+          "GitHub denied collection access (organization policy, configured credential permissions, or rate limit). Saved selections are unchanged.",
+          403,
+        );
+      if (error.status === 404)
+        throw new PersonalError(
+          "repository_not_found",
+          "Repository or account does not exist or is not visible to the collection authorization.",
+          404,
+        );
+      if (error.status === 401)
+        throw new PersonalError(
+          "collection_unavailable",
+          "GitHub rejected the configured collection credential. Contact the administrator; saved selections are unchanged.",
+          503,
+        );
+    }
+    throw new PersonalError(
+      "github_unavailable",
+      "GitHub could not validate the complete collection scope. Retry; saved selections are unchanged.",
+      502,
+    );
+  }
 }
 
 personalApi.get("/admin/invitations", async (context) => {

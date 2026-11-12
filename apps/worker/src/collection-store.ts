@@ -59,6 +59,15 @@ export interface SyncState {
   history_id: string;
 }
 
+export interface ReuseCandidate extends RunRepository {
+  cached_metadata: string;
+  previous_head: string | null;
+  previous_branch: string | null;
+  previous_history: string;
+}
+
+export const repositoryBatchSize = 10;
+
 export interface CollectionAttempt {
   readonly id: string;
   readonly step: string;
@@ -573,6 +582,18 @@ export class CollectionStore {
     state: SyncState | null,
     comparison: Comparison | null = null,
   ): Promise<void> {
+    await this.batch(
+      this.planStatements(repo, metadata, mode, state, comparison),
+    );
+  }
+
+  private planStatements(
+    repo: RunRepository,
+    metadata: RepositoryMetadata,
+    mode: "full" | "incremental" | "reuse",
+    state: SyncState | null,
+    comparison: Comparison | null = null,
+  ): D1PreparedStatement[] {
     const historyId =
       mode === "full"
         ? `${repo.run_id}:${repo.repository_id}`
@@ -609,7 +630,115 @@ export class CollectionStore {
         ),
       );
     }
-    await this.batch(statements);
+    return statements;
+  }
+
+  async planReuseBatch(runId: string, repositoryIds: readonly number[]) {
+    if (repositoryIds.length > repositoryBatchSize)
+      throw new Error("Repository batch exceeds its bounded budget.");
+    const candidates = await this.rows<ReuseCandidate>(
+      `SELECT r.*,d.payload_json AS cached_metadata,
+       s.head_sha AS previous_head,s.default_branch AS previous_branch,s.history_id AS previous_history
+       FROM run_repositories r
+       JOIN discovery_pages d ON d.run_id=r.run_id AND d.scope='metadata:' || r.repository_id AND d.page=0
+       JOIN ${this.scopeId === "default" ? "repository_sync_state" : "personal_repository_sync_state"} s
+         ON s.repository_id=r.repository_id ${this.scopeId === "default" ? "" : "AND s.scope_id=?"}
+       WHERE r.run_id=? AND r.status='pending' AND r.repository_id IN (SELECT value FROM json_each(?))
+       ORDER BY r.repository_id`,
+      ...(this.scopeId === "default" ? [] : [this.scopeId]),
+      runId,
+      JSON.stringify(repositoryIds),
+    );
+    const statements: D1PreparedStatement[] = [];
+    for (const repo of candidates) {
+      const metadata = JSON.parse(repo.cached_metadata) as RepositoryMetadata;
+      if (
+        repo.previous_branch === metadata.defaultBranch &&
+        repo.previous_head === metadata.head
+      )
+        statements.push(
+          ...this.planStatements(repo, metadata, "reuse", {
+            head_sha: repo.previous_head,
+            default_branch: repo.previous_branch,
+            history_id: repo.previous_history,
+          }),
+        );
+    }
+    if (statements.length) await this.batch(statements);
+  }
+
+  async initializeReusePlan(runId: string): Promise<void> {
+    if (await this.reusePlan(runId)) return;
+    const ids = await this.reusableRepositoryIds(runId);
+    await this.statement(
+      "INSERT OR IGNORE INTO discovery_pages(run_id,scope,page,item_count,payload_json) VALUES (?,'reuse-plan:v1',0,?,?)",
+      runId,
+      ids.length,
+      JSON.stringify(ids),
+    ).run();
+  }
+
+  async reusePlan(runId: string): Promise<number[] | null> {
+    const row = await this.one<{ payload_json: string }>(
+      "SELECT payload_json FROM discovery_pages WHERE run_id=? AND scope='reuse-plan:v1' AND page=0",
+      runId,
+    );
+    if (!row) return null;
+    const ids: unknown = JSON.parse(row.payload_json);
+    if (
+      !Array.isArray(ids) ||
+      (this.scopeId !== "default" && ids.length > personalRepositoryLimit) ||
+      !ids.every((id): id is number => Number.isSafeInteger(id) && id > 0) ||
+      new Set(ids).size !== ids.length
+    )
+      throw new Error("Invalid reusable repository manifest.");
+    return ids;
+  }
+
+  private async reusableRepositoryIds(runId: string): Promise<number[]> {
+    const candidates = await this.rows<ReuseCandidate>(
+      `SELECT r.*,d.payload_json AS cached_metadata,
+       s.head_sha AS previous_head,s.default_branch AS previous_branch,s.history_id AS previous_history
+       FROM run_repositories r
+       JOIN discovery_pages d ON d.run_id=r.run_id AND d.scope='metadata:' || r.repository_id AND d.page=0
+       JOIN ${this.scopeId === "default" ? "repository_sync_state" : "personal_repository_sync_state"} s
+         ON s.repository_id=r.repository_id ${this.scopeId === "default" ? "" : "AND s.scope_id=?"}
+       WHERE r.run_id=? ORDER BY r.repository_id`,
+      ...(this.scopeId === "default" ? [] : [this.scopeId]),
+      runId,
+    );
+    return candidates
+      .filter((repo) => {
+        if (repo.sync_mode === "reuse") return true;
+        if (repo.status !== "pending") return false;
+        const metadata = JSON.parse(repo.cached_metadata) as RepositoryMetadata;
+        return (
+          repo.previous_branch === metadata.defaultBranch &&
+          repo.previous_head === metadata.head
+        );
+      })
+      .map((repo) => repo.repository_id);
+  }
+
+  async finishReuseBatch(
+    run: CollectionRun,
+    repositoryIds: readonly number[],
+    emails: readonly string[],
+  ): Promise<void> {
+    if (repositoryIds.length > repositoryBatchSize)
+      throw new Error("Repository batch exceeds its bounded budget.");
+    const repositories = await this.rows<RunRepository>(
+      `SELECT * FROM run_repositories WHERE run_id=? AND sync_mode='reuse'
+       AND status='collecting' AND repository_id IN (SELECT value FROM json_each(?)) ORDER BY repository_id`,
+      run.id,
+      JSON.stringify(repositoryIds),
+    );
+    if (repositories.length)
+      await this.batch(
+        repositories.flatMap((repo) =>
+          this.finishStatements(repo, run, emails),
+        ),
+      );
   }
 
   async missingCommits(
@@ -715,6 +844,17 @@ export class CollectionStore {
     if (!repo.history_id) throw new Error("History was not initialized.");
     const run = await this.run(repo.run_id);
     const emails = await Promise.all(config.authorEmails.map(hashEmail));
+    await this.batch(this.finishStatements(repo, run, emails));
+  }
+
+  private finishStatements(
+    repo: RunRepository,
+    run: CollectionRun,
+    emails: readonly string[],
+  ): D1PreparedStatement[] {
+    if (!repo.history_id) throw new Error("History was not initialized.");
+    if (repo.run_id !== run.id)
+      throw new Error("Repository is outside this collection run.");
     const statements = [
       this.statement(
         "INSERT OR IGNORE INTO history_commits SELECT ?,repository_id,sha FROM pending_history_commits WHERE run_id=? AND repository_id=?",
@@ -780,7 +920,7 @@ export class CollectionStore {
         repo.repository_id,
       ),
     ];
-    await this.batch(statements);
+    return statements;
   }
 
   async snapshot(

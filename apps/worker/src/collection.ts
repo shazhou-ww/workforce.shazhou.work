@@ -11,7 +11,11 @@ import {
   type GitHubRepository,
   type Comparison,
 } from "./collection-github.js";
-import { CollectionStore, type RunRepository } from "./collection-store.js";
+import {
+  CollectionStore,
+  repositoryBatchSize,
+  type RunRepository,
+} from "./collection-store.js";
 import {
   createGitHubClient,
   createOwnerGitHubClient,
@@ -20,7 +24,10 @@ import {
 } from "./github-client.js";
 import type { Bindings } from "./env.js";
 import type { CollectionPhase } from "@shazhou-work/workforce-contracts";
-import { assertPersonalActive } from "./platform.js";
+import {
+  assertPersonalActive,
+  assertPersonalCollectionActive,
+} from "./platform.js";
 
 export interface CollectionParams {
   readonly runId: string;
@@ -113,17 +120,22 @@ export async function runCollection(
         let failure: unknown;
         let completed = false;
         try {
-          if (params.userId) {
-            await assertPersonalActive(env, params.userId);
-            const existing = await metrics?.one<{ status: string }>(
-              "SELECT status FROM collection_runs WHERE id=?",
+          if (params.userId && metrics) {
+            await assertPersonalCollectionActive(
+              env,
+              params.userId,
               params.runId,
+              name === "claim publication lock",
             );
-            if (existing?.status === "cancelled")
-              throw new Error("This personal run was cancelled.");
           }
           await callback();
-          if (params.userId) await assertPersonalActive(env, params.userId);
+          if (params.userId && metrics)
+            await assertPersonalCollectionActive(
+              env,
+              params.userId,
+              params.runId,
+              name === "claim publication lock",
+            );
           completed = true;
         } catch (error) {
           failure = error;
@@ -368,7 +380,31 @@ async function collect(
       );
     }
   }
-  for (const original of repositories) {
+  await steps.do("cached repositories pin and plan manifest", async () => {
+    await store.initializeReusePlan(params.runId);
+  });
+  const reusable = await store.reusePlan(params.runId);
+  if (!reusable) throw new Error("Reusable repository manifest is missing.");
+  let authorEmails: Promise<string[]> | undefined;
+  for (
+    let offset = 0;
+    offset < reusable.length;
+    offset += repositoryBatchSize
+  ) {
+    const members = reusable.slice(offset, offset + repositoryBatchSize);
+    await steps.do(`reuse batch ${offset} pin and plan`, async () => {
+      await store.planReuseBatch(params.runId, members);
+    });
+    await steps.do(
+      `reuse batch ${offset} aggregate and advance watermark`,
+      async () => {
+        authorEmails ??= Promise.all(config.authorEmails.map(hashEmail));
+        await store.finishReuseBatch(run, members, await authorEmails);
+      },
+    );
+  }
+  for (const original of await store.repositories(params.runId)) {
+    if (original.status === "complete") continue;
     const label = `repository ${original.repository_id}`;
     const repositoryClient = clientForRepository(original.full_name);
     await steps.do(`${label} pin and plan`, async () => {

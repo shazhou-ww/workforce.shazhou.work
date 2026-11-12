@@ -197,13 +197,69 @@ export async function assertPersonalActive(
   env: Bindings,
   userId: string,
 ): Promise<void> {
-  const access = await platformAccess(env, { platformUserId: userId });
-  if (access.status !== "active")
+  const access = await database(env).one<{
+    status: string;
+    provider_id: string | null;
+  }>(
+    `SELECT u.status,i.provider_id FROM personal_users u
+     LEFT JOIN personal_identities i ON i.user_id=u.id AND i.provider='github'
+     WHERE u.id=?`,
+    userId,
+  );
+  if (
+    !access ||
+    (access.status !== "active" &&
+      !collectionAdminIds(env).includes(access.provider_id ?? ""))
+  )
     throw new PersonalError(
       "access_stopped",
       "Personal access has been stopped. Previous results are retained.",
       403,
     );
+}
+
+export async function assertPersonalCollectionActive(
+  env: Bindings,
+  userId: string,
+  runId: string,
+  claiming: boolean,
+): Promise<void> {
+  // A fresh first-primary session observes revocation outside this Workflow's session.
+  const access = await database(env).one<{
+    status: string;
+    provider_id: string | null;
+    run_status: string | null;
+    config_id: string | null;
+    active_run_id: string | null;
+  }>(
+    `SELECT u.status,i.provider_id,r.status AS run_status,c.config_id,s.active_run_id
+     FROM personal_users u
+     LEFT JOIN personal_identities i ON i.user_id=u.id AND i.provider='github'
+     LEFT JOIN collection_runs r ON r.id=?
+     LEFT JOIN config_revisions c ON c.id=r.revision_id
+     LEFT JOIN personal_state s ON s.id=u.id WHERE u.id=?`,
+    runId,
+    userId,
+  );
+  if (
+    !access ||
+    (access.status !== "active" &&
+      !collectionAdminIds(env).includes(access.provider_id ?? ""))
+  )
+    throw new PersonalError(
+      "access_stopped",
+      "Personal access has been stopped. Previous results are retained.",
+      403,
+    );
+  if (access.run_status === "cancelled")
+    throw new Error("This personal run was cancelled.");
+  if (
+    (access.run_status === null && !claiming) ||
+    (access.run_status !== null && access.config_id !== userId) ||
+    (["collecting", "ready"].includes(access.run_status ?? "") &&
+      access.active_run_id !== runId)
+  )
+    throw new Error("Collection no longer owns its publication lock.");
 }
 
 export async function registerIdentity(

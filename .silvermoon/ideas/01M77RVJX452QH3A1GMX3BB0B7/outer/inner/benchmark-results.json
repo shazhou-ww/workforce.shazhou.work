@@ -1,0 +1,623 @@
+{
+  "benchmark": "collection-performance",
+  "baselineRevision": "fd026f3cffb81570cd5b45c3472d7e1a1b88e101",
+  "fixture": {
+    "repositories": 70,
+    "reused": 68,
+    "incremental": 2,
+    "newCommits": 13,
+    "injectedD1RoundTripMs": 2,
+    "cutoff": "2026-11-12T12:00:00.000Z",
+    "environment": "Node SQLite; not production D1 or Workflow scheduler",
+    "nodeVersion": "v24.11.1",
+    "sqliteVersion": "3.50.4",
+    "platform": "win32",
+    "architecture": "x64",
+    "productionD1RowsRead": null,
+    "productionD1RowsWritten": null,
+    "productionD1ExecutionMs": null,
+    "externalRateLimitWaitMs": 0,
+    "retryWaitMs": 0,
+    "graphqlCost": null,
+    "scenarioNotes": "Three mixed pairs are acceptance workload; one all-reuse reference pair has the same 2ms nominal call delay; first initialization is a separate zero-delay count/semantic comparison."
+  },
+  "pairs": [
+    {
+      "pair": 1,
+      "scenario": "mixed",
+      "baseline": {
+        "variant": "baseline",
+        "wallMs": 29144.9387,
+        "callbackMs": 27816.488500000014,
+        "planningAggregationMs": 24333.122100000015,
+        "planningAggregationCallbacks": 140,
+        "planningAggregationRoundTrips": 1610,
+        "planningAggregationStatements": 2172,
+        "callbacks": 155,
+        "roundTrips": 1878,
+        "statements": 2516,
+        "batches": 154,
+        "waitMs": 27937.51630000002,
+        "githubRequests": 12,
+        "phases": [
+          {
+            "phase": "aggregation",
+            "callbacks": 70,
+            "activeMs": 10598.676400000004,
+            "rest": 0,
+            "graphql": 0
+          },
+          {
+            "phase": "discovery",
+            "callbacks": 2,
+            "activeMs": 320.38980000000015,
+            "rest": 1,
+            "graphql": 0
+          },
+          {
+            "phase": "history",
+            "callbacks": 2,
+            "activeMs": 390.91739999999845,
+            "rest": 0,
+            "graphql": 2
+          },
+          {
+            "phase": "metadata",
+            "callbacks": 7,
+            "activeMs": 953.789099999999,
+            "rest": 0,
+            "graphql": 7
+          },
+          {
+            "phase": "planning",
+            "callbacks": 70,
+            "activeMs": 11623.428100000012,
+            "rest": 2,
+            "graphql": 0
+          },
+          {
+            "phase": "publication",
+            "callbacks": 4,
+            "activeMs": 1591.6010999999971,
+            "rest": 0,
+            "graphql": 0
+          }
+        ]
+      },
+      "optimized": {
+        "variant": "optimized",
+        "wallMs": 4122.135100000003,
+        "callbackMs": 3823.012400000014,
+        "planningAggregationMs": 1550.9352000000035,
+        "planningAggregationCallbacks": 19,
+        "planningAggregationRoundTrips": 102,
+        "planningAggregationStatements": 786,
+        "callbacks": 34,
+        "roundTrips": 227,
+        "statements": 987,
+        "batches": 32,
+        "waitMs": 3298.2458999999617,
+        "githubRequests": 12,
+        "phases": [
+          {
+            "phase": "aggregation",
+            "callbacks": 9,
+            "activeMs": 574.7105000000047,
+            "rest": 0,
+            "graphql": 0
+          },
+          {
+            "phase": "discovery",
+            "callbacks": 2,
+            "activeMs": 166.69299999999566,
+            "rest": 1,
+            "graphql": 0
+          },
+          {
+            "phase": "history",
+            "callbacks": 2,
+            "activeMs": 243.84429999999702,
+            "rest": 0,
+            "graphql": 2
+          },
+          {
+            "phase": "metadata",
+            "callbacks": 7,
+            "activeMs": 424.7946000000011,
+            "rest": 0,
+            "graphql": 7
+          },
+          {
+            "phase": "planning",
+            "callbacks": 10,
+            "activeMs": 686.2168999999994,
+            "rest": 2,
+            "graphql": 0
+          },
+          {
+            "phase": "publication",
+            "callbacks": 4,
+            "activeMs": 1211.7117000000108,
+            "rest": 0,
+            "graphql": 0
+          }
+        ]
+      }
+    },
+    {
+      "pair": 2,
+      "scenario": "mixed",
+      "baseline": {
+        "variant": "baseline",
+        "wallMs": 29255.294800000003,
+        "callbackMs": 27915.678799999965,
+        "planningAggregationMs": 24406.816899999947,
+        "planningAggregationCallbacks": 140,
+        "planningAggregationRoundTrips": 1610,
+        "planningAggregationStatements": 2172,
+        "callbacks": 155,
+        "roundTrips": 1878,
+        "statements": 2516,
+        "batches": 154,
+        "waitMs": 28018.52270000001,
+        "githubRequests": 12,
+        "phases": [
+          {
+            "phase": "aggregation",
+            "callbacks": 70,
+            "activeMs": 10595.998099999968,
+            "rest": 0,
+            "graphql": 0
+          },
+          {
+            "phase": "discovery",
+            "callbacks": 2,
+            "activeMs": 316.1703999999954,
+            "rest": 1,
+            "graphql": 0
+          },
+          {
+            "phase": "history",
+            "callbacks": 2,
+            "activeMs": 397.40260000000126,
+            "rest": 0,
+            "graphql": 2
+          },
+          {
+            "phase": "metadata",
+            "callbacks": 7,
+            "activeMs": 955.2562999999864,
+            "rest": 0,
+            "graphql": 7
+          },
+          {
+            "phase": "planning",
+            "callbacks": 70,
+            "activeMs": 11680.613699999987,
+            "rest": 2,
+            "graphql": 0
+          },
+          {
+            "phase": "publication",
+            "callbacks": 4,
+            "activeMs": 1612.2653999999966,
+            "rest": 0,
+            "graphql": 0
+          }
+        ]
+      },
+      "optimized": {
+        "variant": "optimized",
+        "wallMs": 4051.191399999996,
+        "callbackMs": 3756.340299999996,
+        "planningAggregationMs": 1537.2578999999969,
+        "planningAggregationCallbacks": 19,
+        "planningAggregationRoundTrips": 102,
+        "planningAggregationStatements": 786,
+        "callbacks": 34,
+        "roundTrips": 227,
+        "statements": 987,
+        "batches": 32,
+        "waitMs": 3288.780599999969,
+        "githubRequests": 12,
+        "phases": [
+          {
+            "phase": "aggregation",
+            "callbacks": 9,
+            "activeMs": 561.6525999999867,
+            "rest": 0,
+            "graphql": 0
+          },
+          {
+            "phase": "discovery",
+            "callbacks": 2,
+            "activeMs": 167.55379999999423,
+            "rest": 1,
+            "graphql": 0
+          },
+          {
+            "phase": "history",
+            "callbacks": 2,
+            "activeMs": 243.5155999999988,
+            "rest": 0,
+            "graphql": 2
+          },
+          {
+            "phase": "metadata",
+            "callbacks": 7,
+            "activeMs": 426.700800000006,
+            "rest": 0,
+            "graphql": 7
+          },
+          {
+            "phase": "planning",
+            "callbacks": 10,
+            "activeMs": 687.0043999999907,
+            "rest": 2,
+            "graphql": 0
+          },
+          {
+            "phase": "publication",
+            "callbacks": 4,
+            "activeMs": 1154.286699999997,
+            "rest": 0,
+            "graphql": 0
+          }
+        ]
+      }
+    },
+    {
+      "pair": 3,
+      "scenario": "mixed",
+      "baseline": {
+        "variant": "baseline",
+        "wallMs": 29208.458700000003,
+        "callbackMs": 27869.577900000106,
+        "planningAggregationMs": 24407.382800000123,
+        "planningAggregationCallbacks": 140,
+        "planningAggregationRoundTrips": 1610,
+        "planningAggregationStatements": 2172,
+        "callbacks": 155,
+        "roundTrips": 1878,
+        "statements": 2516,
+        "batches": 154,
+        "waitMs": 28031.666299999633,
+        "githubRequests": 12,
+        "phases": [
+          {
+            "phase": "aggregation",
+            "callbacks": 70,
+            "activeMs": 10620.408299999996,
+            "rest": 0,
+            "graphql": 0
+          },
+          {
+            "phase": "discovery",
+            "callbacks": 2,
+            "activeMs": 317.9355999999825,
+            "rest": 1,
+            "graphql": 0
+          },
+          {
+            "phase": "history",
+            "callbacks": 2,
+            "activeMs": 396.88700000000244,
+            "rest": 0,
+            "graphql": 2
+          },
+          {
+            "phase": "metadata",
+            "callbacks": 7,
+            "activeMs": 955.7045999999827,
+            "rest": 0,
+            "graphql": 7
+          },
+          {
+            "phase": "planning",
+            "callbacks": 70,
+            "activeMs": 11658.256900000022,
+            "rest": 2,
+            "graphql": 0
+          },
+          {
+            "phase": "publication",
+            "callbacks": 4,
+            "activeMs": 1561.8580999999976,
+            "rest": 0,
+            "graphql": 0
+          }
+        ]
+      },
+      "optimized": {
+        "variant": "optimized",
+        "wallMs": 4092.238999999987,
+        "callbackMs": 3795.209399999978,
+        "planningAggregationMs": 1532.57190000001,
+        "planningAggregationCallbacks": 19,
+        "planningAggregationRoundTrips": 102,
+        "planningAggregationStatements": 786,
+        "callbacks": 34,
+        "roundTrips": 227,
+        "statements": 987,
+        "batches": 32,
+        "waitMs": 3294.3481999999785,
+        "githubRequests": 12,
+        "phases": [
+          {
+            "phase": "aggregation",
+            "callbacks": 9,
+            "activeMs": 569.3937000000151,
+            "rest": 0,
+            "graphql": 0
+          },
+          {
+            "phase": "discovery",
+            "callbacks": 2,
+            "activeMs": 168.005799999999,
+            "rest": 1,
+            "graphql": 0
+          },
+          {
+            "phase": "history",
+            "callbacks": 2,
+            "activeMs": 244.92949999998382,
+            "rest": 0,
+            "graphql": 2
+          },
+          {
+            "phase": "metadata",
+            "callbacks": 7,
+            "activeMs": 422.72069999999076,
+            "rest": 0,
+            "graphql": 7
+          },
+          {
+            "phase": "planning",
+            "callbacks": 10,
+            "activeMs": 684.2263000000239,
+            "rest": 2,
+            "graphql": 0
+          },
+          {
+            "phase": "publication",
+            "callbacks": 4,
+            "activeMs": 1197.347499999989,
+            "rest": 0,
+            "graphql": 0
+          }
+        ]
+      }
+    },
+    {
+      "pair": 4,
+      "scenario": "all-reuse",
+      "baseline": {
+        "variant": "baseline",
+        "wallMs": 28709.84079999999,
+        "callbackMs": 27400.107699999993,
+        "planningAggregationMs": 24441.8125,
+        "planningAggregationCallbacks": 140,
+        "planningAggregationRoundTrips": 1610,
+        "planningAggregationStatements": 2170,
+        "callbacks": 153,
+        "roundTrips": 1848,
+        "statements": 2480,
+        "batches": 152,
+        "waitMs": 27637.659100000295,
+        "githubRequests": 8,
+        "phases": [
+          {
+            "phase": "aggregation",
+            "callbacks": 70,
+            "activeMs": 10622.651400000075,
+            "rest": 0,
+            "graphql": 0
+          },
+          {
+            "phase": "discovery",
+            "callbacks": 2,
+            "activeMs": 319.6590000000142,
+            "rest": 1,
+            "graphql": 0
+          },
+          {
+            "phase": "metadata",
+            "callbacks": 7,
+            "activeMs": 954.9628999999986,
+            "rest": 0,
+            "graphql": 7
+          },
+          {
+            "phase": "planning",
+            "callbacks": 70,
+            "activeMs": 11686.16130000005,
+            "rest": 0,
+            "graphql": 0
+          },
+          {
+            "phase": "publication",
+            "callbacks": 4,
+            "activeMs": 1483.4336000000185,
+            "rest": 0,
+            "graphql": 0
+          }
+        ]
+      },
+      "optimized": {
+        "variant": "optimized",
+        "wallMs": 3388.2198999999964,
+        "callbackMs": 3151.898200000054,
+        "planningAggregationMs": 1135.5785000000615,
+        "planningAggregationCallbacks": 15,
+        "planningAggregationRoundTrips": 76,
+        "planningAggregationStatements": 762,
+        "callbacks": 28,
+        "roundTrips": 179,
+        "statements": 937,
+        "batches": 26,
+        "waitMs": 2573.3152999999293,
+        "githubRequests": 8,
+        "phases": [
+          {
+            "phase": "aggregation",
+            "callbacks": 7,
+            "activeMs": 419.49420000004466,
+            "rest": 0,
+            "graphql": 0
+          },
+          {
+            "phase": "discovery",
+            "callbacks": 2,
+            "activeMs": 167.24400000000605,
+            "rest": 1,
+            "graphql": 0
+          },
+          {
+            "phase": "metadata",
+            "callbacks": 7,
+            "activeMs": 423.71199999999953,
+            "rest": 0,
+            "graphql": 7
+          },
+          {
+            "phase": "planning",
+            "callbacks": 8,
+            "activeMs": 498.5485000000335,
+            "rest": 0,
+            "graphql": 0
+          },
+          {
+            "phase": "publication",
+            "callbacks": 4,
+            "activeMs": 1227.842100000009,
+            "rest": 0,
+            "graphql": 0
+          }
+        ]
+      }
+    },
+    {
+      "pair": 5,
+      "scenario": "first",
+      "baseline": {
+        "variant": "baseline",
+        "wallMs": 1050.3963000000222,
+        "callbackMs": 1041.021700000012,
+        "planningAggregationMs": 94.6480000000156,
+        "planningAggregationCallbacks": 140,
+        "planningAggregationRoundTrips": 1610,
+        "planningAggregationStatements": 2170,
+        "callbacks": 223,
+        "roundTrips": 2688,
+        "statements": 3460,
+        "batches": 222,
+        "waitMs": 0,
+        "githubRequests": 79,
+        "phases": [
+          {
+            "phase": "aggregation",
+            "callbacks": 70,
+            "activeMs": 64.8910999999789,
+            "rest": 0,
+            "graphql": 0
+          },
+          {
+            "phase": "discovery",
+            "callbacks": 2,
+            "activeMs": 2.5802000000257976,
+            "rest": 2,
+            "graphql": 0
+          },
+          {
+            "phase": "history",
+            "callbacks": 70,
+            "activeMs": 165.26369999995222,
+            "rest": 0,
+            "graphql": 70
+          },
+          {
+            "phase": "metadata",
+            "callbacks": 7,
+            "activeMs": 5.983199999987846,
+            "rest": 0,
+            "graphql": 7
+          },
+          {
+            "phase": "planning",
+            "callbacks": 70,
+            "activeMs": 22.963599999900907,
+            "rest": 0,
+            "graphql": 0
+          },
+          {
+            "phase": "publication",
+            "callbacks": 4,
+            "activeMs": 768.2603999999992,
+            "rest": 0,
+            "graphql": 0
+          }
+        ]
+      },
+      "optimized": {
+        "variant": "optimized",
+        "wallMs": 892.6393000000098,
+        "callbackMs": 883.0532000000239,
+        "planningAggregationMs": 101.18360000001849,
+        "planningAggregationCallbacks": 141,
+        "planningAggregationRoundTrips": 916,
+        "planningAggregationStatements": 1476,
+        "callbacks": 224,
+        "roundTrips": 1579,
+        "statements": 2351,
+        "batches": 222,
+        "waitMs": 0,
+        "githubRequests": 79,
+        "phases": [
+          {
+            "phase": "aggregation",
+            "callbacks": 70,
+            "activeMs": 69.1993000000657,
+            "rest": 0,
+            "graphql": 0
+          },
+          {
+            "phase": "discovery",
+            "callbacks": 2,
+            "activeMs": 2.252199999988079,
+            "rest": 2,
+            "graphql": 0
+          },
+          {
+            "phase": "history",
+            "callbacks": 70,
+            "activeMs": 164.0205999999016,
+            "rest": 0,
+            "graphql": 70
+          },
+          {
+            "phase": "metadata",
+            "callbacks": 7,
+            "activeMs": 6.306800000020303,
+            "rest": 0,
+            "graphql": 7
+          },
+          {
+            "phase": "planning",
+            "callbacks": 71,
+            "activeMs": 24.699700000026496,
+            "rest": 0,
+            "graphql": 0
+          },
+          {
+            "phase": "publication",
+            "callbacks": 4,
+            "activeMs": 604.7378999999783,
+            "rest": 0,
+            "graphql": 0
+          }
+        ]
+      }
+    }
+  ],
+  "planningAggregationMedianReduction": 0.9437248352103509
+}

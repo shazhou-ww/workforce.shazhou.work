@@ -305,9 +305,37 @@ Metadata and default-branch heads are fetched serially in GraphQL batches of at
 most 10 repositories belonging to the same owner, using that owner's credential.
 All results in a batch must pass the existing repository-ID and
 public-visibility checks before any metadata is checkpointed. Checkpoints are
-written atomically to D1 and reused after retries or Workflow replay; planning
-and history progress remain per repository. A failed batch never publishes a
-partial snapshot.
+written atomically to D1 and reused after retries or Workflow replay.
+
+Unchanged repositories use a versioned, immutable run-membership checkpoint and
+serial batches of at most 10 for planning and aggregation. Each aggregation
+batch transaction rebuilds the current cutoff's author matches and daily
+statistics before marking its members complete; unchanged HEADs never reuse old
+moving-window totals. Changed repositories retain independent fixed-SHA
+history/comparison checkpoints. Failed batches roll back together and replay
+without duplicate results. Personal callbacks check live eligibility,
+cancellation, scope and ownership before and after each batch using one minimal
+query in a fresh first-primary session; final publication still has its atomic
+authorization/ownership fence. No authorization cache or new migration is
+introduced, and repository/history/cooldown/concurrency budgets are unchanged.
+
+Run the controlled local performance comparison after building contracts:
+
+```powershell
+pnpm --filter @shazhou-work/workforce-contracts build
+node apps\worker\scripts\benchmark-collection.js
+```
+
+The harness extracts the pinned pre-optimization collector from Git, runs three
+paired 70-repository fixtures (68 reused, two changed, 13 new commits), checks
+full snapshot equivalence except generation time, and writes
+`.collection-performance-benchmark.json` in the repository root. Separate
+all-reuse and zero-delay initialization reference pairs are also included. It
+distinguishes D1 calls from SQL statements and includes metrics-write overhead
+separately from persisted phase timings. Its injected nominal 2 ms per D1 call
+is a controlled latency model over Node SQLite, **not production D1 or Workflow
+scheduler performance**; actual timer wait is recorded. No production requests
+are made. The generated baseline directory is removed even on failure.
 
 Structured Worker logs with event `collection.github_request` record every
 actual HTTP attempt (including retries), REST/GraphQL classification, duration,

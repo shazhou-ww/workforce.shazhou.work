@@ -7,6 +7,7 @@ class Statement implements D1PreparedStatement {
   constructor(
     private readonly sqlite: DatabaseSync,
     private readonly sql: string,
+    private readonly before: (sql: string) => Promise<void>,
   ) {}
 
   bind(...values: unknown[]): D1PreparedStatement {
@@ -22,7 +23,8 @@ class Statement implements D1PreparedStatement {
     return this;
   }
 
-  first<T>(column?: string): Promise<T | null> {
+  async first<T>(column?: string): Promise<T | null> {
+    await this.before(this.sql);
     const row = this.sqlite.prepare(this.sql).get(...this.values);
     return Promise.resolve(
       ((column ? row?.[column] : row) as T | undefined) ?? null,
@@ -33,7 +35,8 @@ class Statement implements D1PreparedStatement {
     return this.all<T>();
   }
 
-  all<T>(): Promise<D1Result<T>> {
+  async all<T>(): Promise<D1Result<T>> {
+    await this.before(this.sql);
     const statement = this.sqlite.prepare(this.sql);
     const results = statement.all(...this.values);
     return Promise.resolve({
@@ -54,9 +57,10 @@ class Statement implements D1PreparedStatement {
 
   raw<T>(options: { columnNames: true }): Promise<[string[], ...T[]]>;
   raw<T>(options?: { columnNames?: false }): Promise<T[]>;
-  raw<T>(options?: {
+  async raw<T>(options?: {
     columnNames?: boolean;
   }): Promise<T[] | [string[], ...T[]]> {
+    await this.before(this.sql);
     const statement = this.sqlite.prepare(this.sql);
     const rows = statement
       .all(...this.values)
@@ -71,6 +75,10 @@ class Statement implements D1PreparedStatement {
 
 export class TestD1 implements D1Database {
   readonly sqlite = new DatabaseSync(":memory:");
+  readonly counts = { roundTrips: 0, statements: 0, batches: 0, waitMs: 0 };
+  latencyMs = 0;
+  onStatement: ((sql: string) => void) | undefined;
+  private inBatch = false;
 
   constructor() {
     this.sqlite.exec("PRAGMA foreign_keys=ON");
@@ -91,11 +99,34 @@ export class TestD1 implements D1Database {
   }
 
   prepare(sql: string): D1PreparedStatement {
-    return new Statement(this.sqlite, sql);
+    return new Statement(this.sqlite, sql, async (query) => {
+      this.counts.statements += 1;
+      if (!this.inBatch) await this.roundTrip();
+      this.onStatement?.(query);
+    });
+  }
+
+  resetCounts() {
+    this.counts.roundTrips = 0;
+    this.counts.statements = 0;
+    this.counts.batches = 0;
+    this.counts.waitMs = 0;
+  }
+
+  private async roundTrip() {
+    this.counts.roundTrips += 1;
+    if (this.latencyMs) {
+      const start = performance.now();
+      await new Promise((resolve) => setTimeout(resolve, this.latencyMs));
+      this.counts.waitMs += performance.now() - start;
+    }
   }
 
   async batch<T>(statements: D1PreparedStatement[]): Promise<D1Result<T>[]> {
+    this.counts.batches += 1;
+    await this.roundTrip();
     this.sqlite.exec("BEGIN");
+    this.inBatch = true;
     try {
       const results: D1Result<T>[] = [];
       for (const statement of statements)
@@ -105,6 +136,8 @@ export class TestD1 implements D1Database {
     } catch (error) {
       this.sqlite.exec("ROLLBACK");
       throw error;
+    } finally {
+      this.inBatch = false;
     }
   }
 

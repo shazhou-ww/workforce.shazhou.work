@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "../src/app.js";
 import { Dashboard } from "../src/ui.js";
+import { commitLevel, YearlyHeatmap } from "../src/yearly-heatmap.js";
 
 const now = Date.parse("2026-11-05T08:00:00Z");
 const window = activityWindow(new Date(now));
@@ -298,6 +299,163 @@ describe("dashboard data loading", () => {
 });
 
 describe("read-only activity dashboard", () => {
+  it("keeps yearly statistics visibly unavailable for legacy snapshots instead of inventing zero days", () => {
+    const container = document.createElement("div");
+    container.innerHTML = renderToStaticMarkup(
+      <Dashboard state={{ kind: "ready", snapshot }} now={now} />,
+    );
+    expect(container.querySelector(".yearly-panel")?.textContent).toContain(
+      "等待下一次完整采集",
+    );
+    expect(container.querySelector(".heatmap-day")).toBeNull();
+  });
+
+  it("counts projects with commits independently of zero-change filtering, search and selected date", () => {
+    const zeroChanges = {
+      ...repository,
+      name: "owner/zero",
+      additions: 0,
+      deletions: 0,
+    };
+    const inactive = {
+      ...repository,
+      name: "owner/inactive",
+      commits: 0,
+      additions: 0,
+      deletions: 0,
+    };
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    const projectCount = () =>
+      container.querySelector(".metrics .metric:last-child strong")
+        ?.textContent;
+    try {
+      act(() =>
+        root.render(
+          <Dashboard
+            state={{
+              kind: "ready",
+              snapshot: {
+                ...snapshot,
+                repositories: [repository, zeroChanges, inactive],
+              },
+            }}
+            now={now}
+          />,
+        ),
+      );
+      expect(projectCount()).toBe("2");
+      expect(container.querySelectorAll(".repo-table tbody tr")).toHaveLength(
+        1,
+      );
+      const search =
+        container.querySelector<HTMLInputElement>("input[type=search]");
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      if (!search || !setter) throw new Error("Missing search");
+      act(() => {
+        setter.call(search, "absent");
+        search.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      expect(projectCount()).toBe("2");
+      act(() =>
+        container.querySelector<HTMLButtonElement>(".chart-day")?.click(),
+      );
+      expect(projectCount()).toBe("0");
+    } finally {
+      act(() => root.unmount());
+    }
+  });
+
+  it("renders a fixed year and supports heatmap focus, tap, keyboard navigation without changing 30-day selection", () => {
+    const year = activityWindow(new Date(window.until), 365);
+    const yearly = year.dates.map((date, index) => ({
+      date,
+      commits: index === 364 ? 1024 : index % 20,
+    }));
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    try {
+      act(() =>
+        root.render(
+          <Dashboard
+            state={{ kind: "ready", snapshot: { ...snapshot, yearly } }}
+            now={now}
+          />,
+        ),
+      );
+      const cells =
+        container.querySelectorAll<HTMLButtonElement>(".heatmap-day");
+      expect(cells).toHaveLength(365);
+      expect(cells[0]?.dataset.date).toBe(year.dates[0]);
+      expect(cells[364]?.dataset.level).toBe("5");
+      expect(container.querySelector(".yearly-panel select")).toBeNull();
+      expect(container.querySelectorAll(".heatmap-legend i")).toHaveLength(6);
+      const last = cells[364];
+      if (!last) throw new Error("Missing latest day");
+      act(() => {
+        last.focus();
+        last.click();
+      });
+      expect(container.querySelector("[role=tooltip]")?.textContent).toContain(
+        "1024 次提交",
+      );
+      act(() =>
+        container
+          .querySelector(".heatmap-scroll")
+          ?.dispatchEvent(new Event("scroll")),
+      );
+      expect(container.querySelector("[role=tooltip]")?.textContent).toContain(
+        "1024 次提交",
+      );
+      expect(container.querySelector(".period-value")?.textContent).toBe(
+        "近 30 天",
+      );
+      act(() =>
+        last.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }),
+        ),
+      );
+      expect(document.activeElement?.getAttribute("data-date")).toBe(
+        year.dates[357],
+      );
+      act(() =>
+        document.activeElement?.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+        ),
+      );
+      expect(container.querySelector("[role=tooltip]")).toBeNull();
+    } finally {
+      act(() => root.unmount());
+      container.remove();
+    }
+    const incomplete = renderToStaticMarkup(
+      <YearlyHeatmap daily={yearly.slice(1)} until={window.until} />,
+    );
+    expect(incomplete).toContain("年度统计尚未生成");
+  });
+
+  it.each([
+    [0, 0],
+    [1, 0],
+    [3, 0],
+    [4, 1],
+    [15, 1],
+    [16, 2],
+    [63, 2],
+    [64, 3],
+    [255, 3],
+    [256, 4],
+    [1023, 4],
+    [1024, 5],
+    [4096, 5],
+  ])(
+    "uses the confirmed base-four logarithmic level for %i commits",
+    (count, level) => expect(commitLevel(count)).toBe(level),
+  );
   it.each([false, true])(
     "labels author-filtered snapshots without exposing author emails: %s",
     (emailMatching) => {

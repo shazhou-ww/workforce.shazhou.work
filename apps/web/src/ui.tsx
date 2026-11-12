@@ -5,6 +5,7 @@ import {
   type DailyActivity,
 } from "@shazhou-work/workforce-contracts";
 import { useState, type ReactNode } from "react";
+import { YearlyHeatmap } from "./yearly-heatmap.js";
 
 export type DashboardState =
   | { readonly kind: "loading" }
@@ -48,15 +49,7 @@ export function Dashboard({
   return (
     <div className="shell">
       <header className="masthead">
-        <a className="brand" href="/" aria-label="Workforce 首页">
-          <svg width="30" height="30" viewBox="0 0 30 30" aria-hidden="true">
-            <path
-              d="M3 8h5v14H3zm9-5h5v19h-5zm9 10h5v9h-5z"
-              fill="currentColor"
-            />
-          </svg>
-          Workforce
-        </a>
+        <WorkforceBrand />
         <div className="header-actions">
           <span className="readonly">公开仓库 · 只读看板</span>
           {collectionControl}
@@ -91,6 +84,17 @@ export function Dashboard({
   );
 }
 
+export function WorkforceBrand() {
+  return (
+    <a className="brand" href="/" aria-label="Workforce 首页">
+      <svg width="30" height="30" viewBox="0 0 30 30" aria-hidden="true">
+        <path d="M3 8h5v14H3zm9-5h5v19h-5zm9 10h5v9h-5z" fill="currentColor" />
+      </svg>
+      Workforce
+    </a>
+  );
+}
+
 function ActivityDashboard({
   snapshot,
   now,
@@ -118,6 +122,13 @@ function ActivityDashboard({
         repository.name.toLowerCase().includes(search.trim().toLowerCase()) &&
         (showZeroChanges || period.additions + period.deletions > 0),
     );
+  const activeProjects = snapshot.repositories.filter((repository) =>
+    selectedDate
+      ? repository.daily.some(
+          (day) => day.date === selectedDate && day.commits > 0,
+        )
+      : repository.commits > 0,
+  ).length;
   const stale = now - Date.parse(snapshot.until) > 3 * 60 * 60 * 1000;
   const authorScope = snapshot.authorFilter
     ? `仅统计主作者 ${snapshot.authorFilter.login}${snapshot.authorFilter.emailMatching ? "（含已确认邮箱）" : ""}`
@@ -149,64 +160,65 @@ function ActivityDashboard({
         </p>
       ) : null}
 
-      <section className="activity-panel" aria-labelledby="activity-title">
-        <div className="section-heading">
-          <div>
-            <h2 id="activity-title">每日工作脉搏</h2>
-            <p>
-              {snapshot.daily[0]?.date} 至 {snapshot.daily.at(-1)?.date}
-              <span className="timezone">北京时间 · 默认分支</span>
-            </p>
-            <p>{authorScope}</p>
-          </div>
-          <span className="period">最近 30 天，含今天</span>
-        </div>
-        <div className="metrics" aria-live="polite">
-          <div className="metric-context">
-            <strong className="period-value">
-              {selectedDate
-                ? calendarDate.format(
-                    new Date(`${selectedDate}T00:00:00+08:00`),
-                  )
-                : "近 30 天"}
-            </strong>
-            <span className="period-detail">
+      <div className="activity-overview">
+        <section className="activity-summary" aria-labelledby="activity-title">
+          <div className="section-heading">
+            <div>
+              <h2 id="activity-title">每日工作脉搏</h2>
+              <p>
+                <span className="period-detail">
+                  {selectedDate
+                    ? `${selectedDate.slice(0, 4)} 年 · ${weekday.format(new Date(`${selectedDate}T00:00:00+08:00`))} · 北京时间`
+                    : `${snapshot.daily[0]?.date} 至 ${snapshot.daily.at(-1)?.date}`}
+                </span>
+              </p>
+            </div>
+            <div className="metric-context">
+              <strong className="period-value">
+                {selectedDate
+                  ? calendarDate.format(
+                      new Date(`${selectedDate}T00:00:00+08:00`),
+                    )
+                  : "近 30 天"}
+              </strong>
               {selectedDate ? (
-                `${selectedDate.slice(0, 4)} 年 · ${weekday.format(new Date(`${selectedDate}T00:00:00+08:00`))} · 北京时间`
+                <button
+                  className="text-button"
+                  onClick={() => setSelectedDate(null)}
+                >
+                  查看 30 天合计
+                </button>
               ) : (
-                <>
-                  {snapshot.daily[0]?.date} 至 {snapshot.daily.at(-1)?.date}
-                </>
+                <span className="muted">点选图表，查看当天</span>
               )}
-            </span>
-            {selectedDate ? (
-              <button
-                className="text-button"
-                onClick={() => setSelectedDate(null)}
-              >
-                查看 30 天合计
-              </button>
-            ) : (
-              <span className="muted">点选图表，查看当天</span>
-            )}
+            </div>
           </div>
-          <Metric label="提交数" value={totals.commits} unit="commits" />
-          <Metric
-            label="平均每次提交"
-            value={totals.averageLines}
-            unit="行变化"
-          />
-          <div className="line-totals">
-            <span className="additions">
-              <strong>+{number.format(totals.additions)}</strong>
-              <span>新增</span>
-            </span>
-            <span className="deletions">
-              <strong>−{number.format(totals.deletions)}</strong>
-              <span>删除</span>
-            </span>
+          <div className="metrics" aria-live="polite">
+            <Metric label="提交数" value={totals.commits} unit="commits" />
+            <Metric
+              label="平均每次提交"
+              value={totals.averageLines}
+              unit="行变化"
+            />
+            <div className="changes-metric">
+              <span>代码变化</span>
+              <div className="line-totals">
+                <span className="additions">
+                  <strong>+{number.format(totals.additions)}</strong>
+                  <span>新增</span>
+                </span>
+                <span className="deletions">
+                  <strong>−{number.format(totals.deletions)}</strong>
+                  <span>删除</span>
+                </span>
+              </div>
+            </div>
+            <Metric label="涉及项目" value={activeProjects} unit="个仓库" />
           </div>
-        </div>
+        </section>
+        <YearlyHeatmap daily={snapshot.yearly} until={snapshot.until} />
+      </div>
+      <section className="activity-panel" aria-label="每日提交与代码变化">
         <ActivityChart
           daily={snapshot.daily}
           selectedDate={selectedDate}
@@ -217,6 +229,11 @@ function ActivityDashboard({
         <details className="daily-details">
           <summary>查看每日明细与统计口径</summary>
           <p>
+            {authorScope}。近 30 天图表和最近 365
+            天热力图均使用同一次完整采集截止时间。 热力图不联动近 30
+            天统计；色阶为以 4 为底取对数后向下取整，最高 5 级，0 至 3 次同属第
+            0 级。 涉及项目按所选日期或近 30
+            天有提交的仓库数统计，包含有提交但无代码行变化的仓库，不受项目搜索及零变化开关影响。
             {authorScope}
             的提交，范围为公开仓库默认分支，按提交时间归入北京时间日期。
             {snapshot.authorFilter ? (

@@ -73,6 +73,48 @@ function response(body: unknown, status = 200) {
 }
 
 describe("public GitHub collector", () => {
+  it("requests a full year for offline collection but preserves the 30-day dashboard window", async () => {
+    const request = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(response([repository]))
+      .mockResolvedValueOnce(
+        response(
+          graph({
+            nodes: [
+              ownCommit,
+              {
+                ...ownCommit,
+                oid: "older",
+                committedDate: "2026-03-01T16:00:00Z",
+              },
+              {
+                ...ownCommit,
+                oid: "outside",
+                committedDate: "2020-01-01T00:00:00Z",
+              },
+            ],
+          }),
+        ),
+      );
+    const result = await collectActivity({
+      accounts: ["owner"],
+      token: "token",
+      now,
+      request,
+    });
+    expect(result.daily).toHaveLength(30);
+    expect(result.totals.commits).toBe(1);
+    expect(result.yearly).toHaveLength(365);
+    expect(
+      result.yearly?.find((day) => day.date === "2026-03-02")?.commits,
+    ).toBe(1);
+    expect(result.yearly?.reduce((sum, day) => sum + day.commits, 0)).toBe(2);
+    const body = request.mock.calls[1]?.[1]?.body;
+    if (typeof body !== "string") throw new Error("Missing GraphQL body");
+    expect(JSON.parse(body)).toMatchObject({
+      variables: { since: "2025-11-05T16:00:00.000Z" },
+    });
+  });
   it("counts only the primary account or confirmed author emails, keeping forks and filtering every page", async () => {
     const request = vi
       .fn<typeof fetch>()
@@ -323,7 +365,7 @@ describe("public GitHub collector", () => {
       variables: {
         head: "original-head",
         cursor: "next",
-        since: "2026-10-06T16:00:00.000Z",
+        since: "2025-11-05T16:00:00.000Z",
       },
     });
     expect(result.repositories).toHaveLength(2);

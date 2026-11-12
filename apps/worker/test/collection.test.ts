@@ -10,9 +10,11 @@ import type { Bindings } from "../src/env.js";
 import type { GitHubRepository, RawCommit } from "../src/collection-github.js";
 import { TestD1 } from "./d1.js";
 import { GitHubError } from "../src/github-client.js";
+import { activityWindow } from "@shazhou-work/workforce-contracts";
 
 const until = "2026-11-09T04:00:00.000Z";
 const key = "email-key-with-at-least-thirty-two-characters";
+const hashEmail = await createEmailHasher(key);
 const baseConfig = {
   enabled: false,
   accounts: ["owner"],
@@ -292,8 +294,8 @@ describe("D1 collection", () => {
         `Bearer ${body.variables.owner === "owner" ? "owner-token" : "second-token"}`,
       );
     }
-    const oldSnapshot = await store.snapshot(baseline.runId);
-    const newSnapshot = await store.snapshot(optimized.runId);
+    const oldSnapshot = await store.snapshot(baseline.runId, hashEmail);
+    const newSnapshot = await store.snapshot(optimized.runId, hashEmail);
     expect({ ...newSnapshot, generatedAt: oldSnapshot.generatedAt }).toEqual(
       oldSnapshot,
     );
@@ -561,10 +563,10 @@ describe("D1 collection", () => {
         "Bearer organization-test-token",
       );
     }
-    expect((await store.snapshot(run.runId)).totals.commits).toBe(2);
-    expect(JSON.stringify(await store.snapshot(run.runId))).not.toContain(
-      "organization-test-token",
-    );
+    expect((await store.snapshot(run.runId, hashEmail)).totals.commits).toBe(2);
+    expect(
+      JSON.stringify(await store.snapshot(run.runId, hashEmail)),
+    ).not.toContain("organization-test-token");
   });
 
   it("uses the owner's credential for explicit inclusion and exclusion lookups", async () => {
@@ -589,7 +591,7 @@ describe("D1 collection", () => {
     }
   });
 
-  it("collects all history but publishes only the 30-day filtered window, without private identities", async () => {
+  it("collects all history with 30-day metrics, without private identities", async () => {
     const { env, store, revisionId, put } = await setup();
     const request = github({
       commits: [
@@ -605,11 +607,12 @@ describe("D1 collection", () => {
         commit(7, "2026-11-10T00:00:00Z"),
       ],
     });
+
     const run = params(revisionId);
     await runCollection(env, run, steps(), request);
     expect((await store.rows("SELECT * FROM commits")).length).toBe(6);
     expect((await store.rows("SELECT * FROM history_commits")).length).toBe(6);
-    const snapshot = await store.snapshot(run.runId);
+    const snapshot = await store.snapshot(run.runId, hashEmail);
     expect(snapshot.daily).toHaveLength(30);
     expect(snapshot.totals).toEqual({
       commits: 2,
@@ -634,6 +637,65 @@ describe("D1 collection", () => {
     expect(historyBody).not.toContain("until");
   });
 
+  it("aggregates a complete filtered year from cached reachable history without expanding 30-day totals", async () => {
+    const { env, store, revisionId } = await setup();
+    const year = activityWindow(new Date(until), 365);
+    const first = commit(1, year.since);
+    const run = params(revisionId);
+    await runCollection(
+      env,
+      run,
+      steps(),
+      github({
+        repos: [repository, { ...repository, id: 3, full_name: "owner/fork" }],
+        commits: [
+          first,
+          first,
+          commit(2, new Date(Date.parse(year.since) - 1).toISOString()),
+          commit(3, "2026-03-01T16:00:00Z"),
+          commit(4),
+          commit(5, new Date(Date.parse(until) + 1).toISOString()),
+          {
+            ...commit(6, "2026-04-01T00:00:00Z"),
+            author: {
+              email: "other@example.test",
+              user: { login: "upstream" },
+            },
+          },
+          {
+            ...commit(7, "2026-06-01T16:00:00Z"),
+            author: { email: "AUTHOR@example.test", user: null },
+          },
+          {
+            ...commit(8, "2026-03-01T16:00:00Z"),
+            author: {
+              email: "other@example.test",
+              user: { login: "SHAZHOU-WW" },
+            },
+          },
+          { ...commit(9), author: null },
+        ],
+      }),
+    );
+    const snapshot = await store.snapshot(run.runId, hashEmail);
+    expect(snapshot.daily).toHaveLength(30);
+    expect(snapshot.totals.commits).toBe(2);
+    expect(snapshot.yearly).toHaveLength(365);
+    expect(snapshot.yearly?.[0]).toEqual({ date: year.dates[0], commits: 2 });
+    expect(
+      snapshot.yearly?.find((day) => day.date === "2026-03-02")?.commits,
+    ).toBe(4);
+    expect(
+      snapshot.yearly?.find((day) => day.date === "2026-06-02")?.commits,
+    ).toBe(2);
+    expect(snapshot.yearly?.at(-1)?.commits).toBe(2);
+    expect(snapshot.yearly?.reduce((sum, day) => sum + day.commits, 0)).toBe(
+      10,
+    );
+    expect(snapshot.yearly?.[1]?.commits).toBe(0);
+    expect(JSON.stringify(snapshot)).not.toContain("@example.test");
+  });
+
   it("reuses an unchanged head and re-filters cached history for a new configuration", async () => {
     const { env, store, revisionId, put } = await setup();
     await runCollection(env, params(revisionId), steps(), github());
@@ -653,7 +715,7 @@ describe("D1 collection", () => {
         bodyText(call[1]).includes("FullHistory"),
       ),
     ).toBe(false);
-    expect((await store.snapshot(run.runId)).totals.commits).toBe(0);
+    expect((await store.snapshot(run.runId, hashEmail)).totals.commits).toBe(0);
     expect((await store.rows("SELECT * FROM commits")).length).toBe(1);
     expect(put).toHaveBeenCalledTimes(2);
     expect((await store.config(revisionId)).authorEmails).toEqual([
@@ -671,7 +733,7 @@ describe("D1 collection", () => {
     });
     const run = params(revisionId);
     await runCollection(env, run, steps(), request);
-    expect((await store.snapshot(run.runId)).totals.commits).toBe(3);
+    expect((await store.snapshot(run.runId, hashEmail)).totals.commits).toBe(3);
     expect(
       (await store.rows("SELECT * FROM commits WHERE repository_id=2")).length,
     ).toBe(2);
@@ -716,7 +778,9 @@ describe("D1 collection", () => {
           .run();
       }
       await runCollection(env, run, steps(), request);
-      expect((await store.snapshot(run.runId)).totals.commits).toBe(2);
+      expect((await store.snapshot(run.runId, hashEmail)).totals.commits).toBe(
+        2,
+      );
       expect(
         request.mock.calls.filter(
           ([input]) => typeof input === "string" && input.includes("/compare/"),
@@ -738,7 +802,9 @@ describe("D1 collection", () => {
         steps(),
         github({ head: sha(2), status, commits: [commit(2)] }),
       );
-      expect((await store.snapshot(run.runId)).totals.commits).toBe(1);
+      expect((await store.snapshot(run.runId, hashEmail)).totals.commits).toBe(
+        1,
+      );
       expect((await store.rows("SELECT * FROM commits")).length).toBe(2);
       expect((await store.repositories(run.runId))[0]?.sync_mode).toBe("full");
     },
@@ -802,12 +868,14 @@ describe("D1 collection", () => {
     const run = params(first.revisionId);
     await runCollection(first.env, run, steps(), github({ branch: null }));
     expect(
-      (await first.store.snapshot(run.runId)).repositories[0],
+      (await first.store.snapshot(run.runId, hashEmail)).repositories[0],
     ).toMatchObject({ latestCommit: null, commits: 0 });
     const second = await setup();
     const next = params(second.revisionId);
     await runCollection(second.env, next, steps(), github({ repos: [] }));
-    expect((await second.store.snapshot(next.runId)).repositories).toEqual([]);
+    expect(
+      (await second.store.snapshot(next.runId, hashEmail)).repositories,
+    ).toEqual([]);
   });
 
   it("preserves a publication cutoff fence after cancelling an ambiguous KV write", async () => {
@@ -909,7 +977,7 @@ describe("D1 collection", () => {
     );
     await runCollection(env, run, durable, request);
     expect(historyCalls).toEqual([null, "next"]);
-    expect((await store.snapshot(run.runId)).totals.commits).toBe(2);
+    expect((await store.snapshot(run.runId, hashEmail)).totals.commits).toBe(2);
   });
 
   it("fully paginates comparisons beyond 100 commits and resumes a committed incremental page", async () => {
@@ -951,7 +1019,9 @@ describe("D1 collection", () => {
       "Checkpoint",
     );
     await runCollection(env, run, durable, request);
-    expect((await store.snapshot(run.runId)).totals.commits).toBe(102);
+    expect((await store.snapshot(run.runId, hashEmail)).totals.commits).toBe(
+      102,
+    );
     expect((await store.rows("SELECT * FROM commits")).length).toBe(102);
     expect(
       request.mock.calls.flatMap(([input]) =>
@@ -1115,7 +1185,7 @@ describe("D1 collection", () => {
       await store.one("SELECT committed_at FROM commits WHERE repository_id=5"),
     ).toEqual({ committed_at: "2000-01-01T00:00:00.000Z" });
     expect(historyRequests).toHaveBeenCalledOnce();
-    expect((await store.snapshot(run.runId)).totals.commits).toBe(1);
+    expect((await store.snapshot(run.runId, hashEmail)).totals.commits).toBe(1);
   });
 
   it("uses public account identities and unauthenticated public repository listing for an empty organization", async () => {
@@ -1151,7 +1221,7 @@ describe("D1 collection", () => {
     const run = params(revisionId);
     await runCollection(env, run, steps(), request);
     expect((await store.run(run.runId)).status).toBe("published");
-    expect((await store.snapshot(run.runId)).accounts).toContain(
+    expect((await store.snapshot(run.runId, hashEmail)).accounts).toContain(
       "silvermoon-work",
     );
   });
@@ -1169,9 +1239,9 @@ describe("D1 collection", () => {
       github({ branch: "trunk", head: sha(2), commits: [commit(2)] }),
     );
     expect((await store.repositories(run.runId))[0]?.sync_mode).toBe("full");
-    expect((await store.snapshot(run.runId)).authorFilter?.login).toBe(
-      "已配置邮箱",
-    );
+    expect(
+      (await store.snapshot(run.runId, hashEmail)).authorFilter?.login,
+    ).toBe("已配置邮箱");
   });
 
   it("guards missing state, invalid pages and out-of-order publication", async () => {
@@ -1227,7 +1297,9 @@ describe("D1 collection", () => {
         run.runId,
       )
       .run();
-    await expect(store.snapshot(run.runId)).rejects.toThrow("incomplete");
+    await expect(store.snapshot(run.runId, hashEmail)).rejects.toThrow(
+      "incomplete",
+    );
     await store.statement("DELETE FROM collection_state").run();
     await expect(
       store.begin(crypto.randomUUID(), revisionId, until, "key"),

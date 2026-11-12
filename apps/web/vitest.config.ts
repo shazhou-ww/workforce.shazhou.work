@@ -7,8 +7,10 @@ export default defineConfig({
     coverage: {
       include: [
         "src/ui.tsx",
+        "src/yearly-heatmap.tsx",
         "src/app.tsx",
         "src/api.ts",
+        "src/auth-page.tsx",
         "src/collection-control.tsx",
       ],
       provider: "v8",

@@ -94,4 +94,14 @@ describe("Beijing activity statistics", () => {
     expect(year.dates.at(-1)).toBe("2026-01-01");
     expect(year.dates[0]).toBe("2025-12-03");
   });
+
+  it("uses exactly 365 Beijing days across leap years without changing the 30-day default", () => {
+    const year = activityWindow(new Date("2024-02-29T16:30:00Z"), 365);
+    expect(year.dates).toHaveLength(365);
+    expect(year.dates[0]).toBe("2023-03-03");
+    expect(year.dates.at(-1)).toBe("2024-03-01");
+    expect(year.since).toBe("2023-03-02T16:00:00.000Z");
+    expect(year.dates).toContain("2024-02-29");
+    expect(activityWindow(new Date(year.until)).dates).toHaveLength(30);
+  });
 });

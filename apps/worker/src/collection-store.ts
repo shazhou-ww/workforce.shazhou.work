@@ -715,7 +715,10 @@ export class CollectionStore {
     await this.batch(statements);
   }
 
-  async snapshot(runId: string): Promise<ActivitySnapshot> {
+  async snapshot(
+    runId: string,
+    hashEmail: (email: string) => Promise<string>,
+  ): Promise<ActivitySnapshot> {
     const run = await this.run(runId);
     const config = await this.config(run.revision_id);
     const window = activityWindow(new Date(run.until_at));
@@ -768,6 +771,26 @@ export class CollectionStore {
         ) || left.name.localeCompare(right.name),
     );
     const daily = combineDaily(repositories, window.dates);
+    const yearlyWindow = activityWindow(new Date(run.until_at), 365);
+    const emails = await Promise.all(config.authorEmails.map(hashEmail));
+    const yearlyRows = await this.rows<{ date: string; commits: number }>(
+      `SELECT date(c.committed_at,'+8 hours') AS date,count(*) AS commits
+       FROM run_repositories r
+       JOIN commits c ON c.repository_id=r.repository_id
+       JOIN history_commits h ON h.history_id=r.history_id AND h.repository_id=c.repository_id AND h.sha=c.sha
+       WHERE r.run_id=? AND c.committed_at>=? AND c.committed_at<=?
+         AND (c.author_login IN (SELECT normalized_value FROM config_identities WHERE revision_id=? AND identity_type='github_login')
+           OR c.author_email_hmac IN (SELECT value FROM json_each(?)))
+       GROUP BY date(c.committed_at,'+8 hours')`,
+      runId,
+      yearlyWindow.since,
+      yearlyWindow.until,
+      run.revision_id,
+      JSON.stringify(emails),
+    );
+    const yearlyCounts = new Map(
+      yearlyRows.map((row) => [row.date, row.commits]),
+    );
     return {
       version: 1,
       accounts: config.accounts,
@@ -783,6 +806,10 @@ export class CollectionStore {
       daily,
       repositories,
       totals: activityTotals(daily),
+      yearly: yearlyWindow.dates.map((date) => ({
+        date,
+        commits: yearlyCounts.get(date) ?? 0,
+      })),
     };
   }
 

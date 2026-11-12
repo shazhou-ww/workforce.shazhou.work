@@ -124,6 +124,8 @@ export async function collectActivity({
   const { github, graphql } = createGitHubClient(token, request);
 
   const window = activityWindow(now);
+  const yearlyWindow = activityWindow(now, 365);
+  const yearlyCounts = new Map(yearlyWindow.dates.map((date) => [date, 0]));
   const discovered = new Map<string, PublicRepository>();
   for (const account of new Set(accounts)) {
     for (let page = 1; ; page += 1) {
@@ -149,7 +151,7 @@ export async function collectActivity({
     const variables = {
       owner: repository.owner.login,
       name: repository.name,
-      since: window.since,
+      since: yearlyWindow.since,
       until: window.until,
     };
     const first = await graphql<HistoryPage>(historyQuery, {
@@ -213,6 +215,12 @@ export async function collectActivity({
     }
 
     const daily = dailyActivity(commits, window);
+    for (const day of dailyActivity(commits, yearlyWindow)) {
+      yearlyCounts.set(
+        day.date,
+        (yearlyCounts.get(day.date) ?? 0) + day.commits,
+      );
+    }
     const head = metadata.defaultBranchRef?.target;
     repositories.push({
       name: metadata.nameWithOwner,
@@ -254,5 +262,9 @@ export async function collectActivity({
     totals: activityTotals(daily),
     daily,
     repositories,
+    yearly: yearlyWindow.dates.map((date) => ({
+      date,
+      commits: yearlyCounts.get(date) ?? 0,
+    })),
   };
 }

@@ -16,6 +16,11 @@ export interface DailyActivity extends ActivityTotals {
   readonly date: string;
 }
 
+export interface DailyCommitCount {
+  readonly date: string;
+  readonly commits: number;
+}
+
 export interface RepositoryActivity extends ActivityTotals {
   readonly name: string;
   readonly url: string;
@@ -46,6 +51,7 @@ export interface ActivitySnapshot {
   readonly totals: ActivityTotals;
   readonly daily: readonly DailyActivity[];
   readonly repositories: readonly RepositoryActivity[];
+  readonly yearly?: readonly DailyCommitCount[];
 }
 
 const dayMs = 86_400_000;
@@ -57,17 +63,20 @@ export function beijingDate(instant: string | number): string {
     .slice(0, 10);
 }
 
-export function activityWindow(now: Date): {
+export function activityWindow(
+  now: Date,
+  days = 30,
+): {
   since: string;
   until: string;
   dates: string[];
 } {
   const today = Date.parse(`${beijingDate(now.getTime())}T00:00:00+08:00`);
-  const start = today - 29 * dayMs;
+  const start = today - (days - 1) * dayMs;
   return {
     since: new Date(start).toISOString(),
     until: now.toISOString(),
-    dates: Array.from({ length: 30 }, (_, index) =>
+    dates: Array.from({ length: days }, (_, index) =>
       beijingDate(start + index * dayMs),
     ),
   };

@@ -3,6 +3,7 @@ import type {
   HealthResponse,
 } from "@shazhou-work/workforce-contracts";
 import { describe, expect, it, vi } from "vitest";
+import { encode } from "@auth/core/jwt";
 
 import { createAuthConfig } from "../src/auth.js";
 import type { Bindings } from "../src/env.js";
@@ -14,6 +15,123 @@ const baseBindings = {
 } as Bindings;
 
 describe("Worker", () => {
+  const oauthBindings = {
+    ...baseBindings,
+    AUTH_GITHUB_ID: "github-id",
+    AUTH_GITHUB_SECRET: "github-secret",
+  };
+
+  it("redirects legacy authentication links to branded pages without signing out on GET", async () => {
+    for (const [action, page] of [
+      ["signin", "/signin"],
+      ["signout", "/signout"],
+    ]) {
+      const response = await app.request(
+        `https://example.test/api/auth/${action}?callbackUrl=%2F`,
+        {},
+        oauthBindings,
+      );
+      expect(response.status).toBe(302);
+      expect(response.headers.get("Location")).toBe(
+        action === "signin"
+          ? `${page}?callbackUrl=https%3A%2F%2Fexample.test%2F`
+          : page,
+      );
+      expect(response.headers.getSetCookie().join(";")).not.toContain(
+        "session-token=;",
+      );
+    }
+  });
+
+  it("starts GitHub OAuth from a CSRF-protected POST and rejects an external callback", async () => {
+    const csrf = await app.request(
+      "https://example.test/api/auth/csrf",
+      {},
+      oauthBindings,
+    );
+    const { csrfToken } = await csrf.json<{ csrfToken: string }>();
+    const response = await app.request(
+      "https://example.test/api/auth/signin/github",
+      {
+        method: "POST",
+        headers: {
+          Cookie: csrf.headers
+            .getSetCookie()
+            .map((cookie) => cookie.split(";")[0])
+            .join("; "),
+        },
+        body: new URLSearchParams({
+          csrfToken,
+          callbackUrl: "https://untrusted.test/",
+        }),
+      },
+      oauthBindings,
+    );
+    expect(response.status).toBe(302);
+    const destination = new URL(response.headers.get("Location") ?? "");
+    expect(destination.origin).toBe("https://github.com");
+    expect(destination.searchParams.get("redirect_uri")).toBe(
+      "https://example.test/api/auth/callback/github",
+    );
+    expect(response.headers.getSetCookie().join(";")).not.toContain(
+      "untrusted.test",
+    );
+  });
+
+  it("clears an authenticated session only after a CSRF-protected signout POST", async () => {
+    const sessionName = "__Secure-authjs.session-token";
+    const session = await encode({
+      token: { sub: "administrator", githubAccountId: "123" },
+      secret: baseBindings.AUTH_SECRET,
+      salt: sessionName,
+    });
+    const csrf = await app.request(
+      "https://example.test/api/auth/csrf",
+      {},
+      oauthBindings,
+    );
+    const { csrfToken } = await csrf.json<{ csrfToken: string }>();
+    const cookies = [
+      `${sessionName}=${session}`,
+      ...csrf.headers.getSetCookie().map((cookie) => cookie.split(";")[0]),
+    ].join("; ");
+    const valid = await app.request(
+      "https://example.test/api/auth/signout",
+      {
+        method: "POST",
+        headers: { Cookie: cookies },
+        body: new URLSearchParams({ csrfToken, callbackUrl: "/" }),
+      },
+      oauthBindings,
+    );
+    expect(valid.status).toBe(302);
+    expect(valid.headers.get("Location")).toBe("https://example.test/");
+    expect(valid.headers.getSetCookie().join(";")).toContain(
+      `${sessionName}=;`,
+    );
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const invalid = await app.request(
+        "https://example.test/api/auth/signout",
+        {
+          method: "POST",
+          headers: { Cookie: cookies },
+          body: new URLSearchParams({ csrfToken: "forged-token" }),
+        },
+        oauthBindings,
+      );
+      expect(invalid.status).toBe(302);
+      expect(invalid.headers.get("Location")).toBe(
+        "https://example.test/signin?error=MissingCSRF",
+      );
+      expect(invalid.headers.getSetCookie().join(";")).not.toContain(
+        `${sessionName}=;`,
+      );
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   it("serves the public snapshot without requiring a session", async () => {
     const snapshot = { version: 1, repositories: [], daily: [] };
     const get = vi.fn().mockResolvedValue(snapshot);

@@ -31,6 +31,11 @@ GitHub repository location.
 - Last **30 Beijing calendar days**, including the partial current day. History
   is fixed to a single collection cutoff, using GitHub's committed timestamp
   rather than author date or push date.
+- The compact yearly heatmap covers the last **365 Beijing calendar days**,
+  including the partial current day, with the same author/repository scope and
+  cutoff as the 30-day statistics. It uses cached reachable history, not a
+  separate GitHub request per day. Offline collection requests a year of history
+  while retaining 30-day repository statistics.
 - Only commits whose **primary author** matches any configured GitHub login or
   email, on each repository's **default branch**. Author emails are stored only
   in protected D1 configuration, never committed to source or exposed in public
@@ -66,6 +71,30 @@ date, totals, and repository statistics; selecting it again or choosing
 "查看 30 天合计" restores the full period. Search filters the repository list
 only, not the global chart or totals. The browser re-reads the snapshot every
 five minutes. Data older than three hours is visibly marked stale.
+
+The top row places 30-day statistics beside the yearly heatmap; the existing
+composite chart spans the row below. Additions and deletions share one
+statistic. "涉及项目" counts repositories with at least one commit in the
+selected day or 30-day period, including zero-line-change commits, independently
+of repository search and the zero-change toggle. Narrow screens stack the
+summaries and allow the heatmap to scroll horizontally.
+
+The heatmap has no period selector, totals, or date-selection linkage. Each cell
+shows its Beijing date, weekday and exact commit count on hover, focus or tap.
+Arrow keys move between days (up/down) or weeks (left/right); Escape dismisses
+the tooltip. The latest collection day has an outline. Color levels are
+`level(0) = 0`, otherwise `min(floor(log4(n)), 5)`: **0–3 / 4–15 / 16–63 /
+64–255 / 256–1023 / 1024+**. Thus 0 and 1–3 commits intentionally share a color.
+The 0–3 tier is neutral gray; 4–15, 16–63 and 64–255 use increasingly saturated
+blues (32%, 65% and 100% of the primary color mixed with white). The 256–1023
+tier uses purple and 1024+ uses gold, with soft static glows on heatmap cells
+only. These highlight exceptional commit volume, not productivity or quality.
+Legend swatches stay unlit; hover outlines and keyboard focus remain visible.
+There is no flashing or pulsing animation. The optional `yearly` snapshot field
+contains exactly 365 `{date, commits}` entries; missing or incomplete yearly
+data displays a pending message rather than invented zero activity. The next
+complete collection upgrades old KV snapshots; no D1 migration or history reset
+is needed.
 
 ## Local development (PowerShell)
 
@@ -105,6 +134,14 @@ OAuth APIs remain available, with `/api/me` still protected. To use them, copy
 and configure the desired providers and callback URLs as described in the
 template. Do not configure providers for the read-only public dashboard.
 
+Authentication uses the branded Chinese `/signin` and `/signout` pages. Existing
+`/api/auth/signin` and `/api/auth/signout` links redirect to these pages; OAuth
+callbacks remain under `/api/auth/callback/*`. Forms POST to Auth.js with its
+cookie-backed CSRF token, and return destinations are validated by Auth.js.
+Signing out requires confirmation; cancelling returns to the public dashboard
+without changing the session. Login does not grant collection permissions:
+server-side administrator checks remain authoritative.
+
 ## Collection
 
 ### Cloudflare collection
@@ -115,6 +152,7 @@ Cron / authenticated manual trigger
   -> paginated account discovery and fixed repository heads
   -> D1 full-history initialization or incremental synchronization
   -> immutable 30-day daily aggregates
+  -> 365-day commit counts from cached reachable history
   -> complete KV snapshot
 ```
 

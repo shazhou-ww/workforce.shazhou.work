@@ -16,6 +16,11 @@ export function createAuthConfig(env: Bindings): AuthConfig {
     secret: env.AUTH_SECRET,
     basePath: "/api/auth",
     trustHost: true,
+    pages: {
+      signIn: "/signin",
+      signOut: "/signout",
+      error: "/signin",
+    },
     callbacks: {
       jwt({ token, account }) {
         if (account) {

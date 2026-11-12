@@ -502,13 +502,13 @@ async function collect(
     });
   }
   await steps.do("mark complete collection ready", async () => {
-    await store.snapshot(params.runId);
+    await store.snapshot(params.runId, hashEmail);
     await store.ready(params.runId);
   });
   await steps.do("publish complete KV snapshot", async () => {
     if (!(await store.ownsRun(params.runId)))
       throw new Error("Publication lock was lost.");
-    const snapshot = await store.snapshot(params.runId);
+    const snapshot = await store.snapshot(params.runId, hashEmail);
     await env.STATS.put("activity:v1", JSON.stringify(snapshot));
   });
   await steps.do("record publication and release lock", async () => {

@@ -4,6 +4,7 @@ import {
   type WorkflowStep,
 } from "cloudflare:workers";
 import { NonRetryableError } from "cloudflare:workflows";
+import { personalRepositoryLimit } from "@shazhou-work/workforce-contracts";
 import { runCollection, type CollectionParams } from "./collection.js";
 import { CollectionStore } from "./collection-store.js";
 import { GitHubError } from "./github-client.js";
@@ -102,7 +103,7 @@ export class ActivityCollection extends WorkflowEntrypoint<
       function safePersonalFailure(error: Error): string {
         if (
           error.message.includes("50000") ||
-          error.message.includes("50 repository")
+          error.message.includes(`${personalRepositoryLimit} repository`)
         )
           return error.message;
         return "Collection failed or access was stopped. Previous complete results are retained; check repository visibility, narrow the scope, or retry after the refresh cooldown.";

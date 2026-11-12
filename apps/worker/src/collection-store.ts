@@ -8,6 +8,7 @@ import {
   type RepositoryActivity,
   type RollingActivity,
   collectionPhases,
+  personalRepositoryLimit,
   type CollectionPhase,
   type CollectionPerformance,
 } from "@shazhou-work/workforce-contracts";
@@ -489,9 +490,9 @@ export class CollectionStore {
         "SELECT count(*) AS count FROM run_repositories WHERE run_id=?",
         runId,
       );
-      if ((count?.count ?? 0) > 50)
+      if ((count?.count ?? 0) > personalRepositoryLimit)
         throw new Error(
-          "Expanded repository scope exceeds the 50 repository limit. Narrow the scope; previous results are retained.",
+          `Expanded repository scope exceeds the ${personalRepositoryLimit} repository limit. Narrow the scope; previous results are retained.`,
         );
     }
   }

@@ -245,12 +245,12 @@ invalidates existing sessions and requires GitHub reconnection. There is no new
 production secret to provision and no user-supplied personal access token. Keep
 `AUTH_SECRET` stable and private.
 
-New personal scopes allow up to 50 public repositories after expansion, a
-15-minute manual refresh cooldown, and a 50,000 fetched-commit history budget
-per run. At most four personal runs reserve global capacity; hourly scheduling
-is bounded to four due users per invocation. Failed or suspended runs retain the
-previous complete result. The legacy public collector retains its existing
-repository scope and independent publication lock.
+Personal scopes allow up to 200 public repositories after expansion, a 15-minute
+manual refresh cooldown, and a 50,000 fetched-commit history budget per run. At
+most four personal runs reserve global capacity; hourly scheduling is bounded to
+four due users per invocation. Failed or suspended runs retain the previous
+complete result. The legacy public collector retains its existing repository
+scope and independent publication lock.
 
 ## Collection
 
@@ -408,8 +408,9 @@ Cancellation never stops a live Workflow behind its back: terminate it in
 Cloudflare first if it is still running. Cancelled or published runs cannot
 acquire the lock again.
 
-Configuration requires all fields below; arrays are limited to 100 entries each,
-normalized case-insensitively and deduplicated:
+Configuration requires all fields below. Included/excluded repository lists
+allow up to 200 entries each; account and author identity lists allow up to 100.
+Values are normalized case-insensitively and deduplicated:
 
 ```json
 {

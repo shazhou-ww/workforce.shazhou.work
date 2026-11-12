@@ -2,12 +2,13 @@ import type {
   GitHubConnection,
   PlatformAccessResponse,
 } from "@shazhou-work/workforce-contracts";
+import { personalRepositoryLimit } from "@shazhou-work/workforce-contracts";
 import { collectionAdminIds } from "./auth.js";
 import type { Bindings } from "./env.js";
 import { CollectionStore } from "./collection-store.js";
 
 export const personalLimits = {
-  repositories: 50,
+  repositories: personalRepositoryLimit,
   refreshCooldownSeconds: 900,
   historyCommits: 50_000,
 } as const;

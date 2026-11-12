@@ -1,6 +1,8 @@
 import type { ActivitySnapshot } from "./activity.js";
 import type { CollectionProgressResponse } from "./index.js";
 
+export const personalRepositoryLimit = 200;
+
 export interface PersonalConfig {
   readonly enabled: boolean;
   readonly accounts: readonly string[];

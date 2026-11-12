@@ -719,7 +719,7 @@ async function validateScope(
     if (repositories.size > personalLimits.repositories)
       throw new PersonalError(
         "repository_limit",
-        "Expanded scope exceeds 50 public repositories. Narrow the scope or add exclusions.",
+        `Expanded scope exceeds ${personalLimits.repositories} public repositories. Narrow the scope or add exclusions.`,
         422,
       );
   };

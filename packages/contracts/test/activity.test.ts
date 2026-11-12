@@ -106,7 +106,7 @@ describe("Beijing activity statistics", () => {
     expect(activityWindow(new Date(year.until)).dates).toHaveLength(30);
   });
 
-  it("samples trailing 24 hours at Beijing two-hour anchors with exact boundaries and warmup history", () => {
+  it("samples trailing 24 hours at Beijing hourly anchors with exact boundaries and warmup history", () => {
     const period = {
       since: "2025-12-31T16:00:00.000Z",
       until: "2026-01-01T05:30:00.000Z",
@@ -141,12 +141,19 @@ describe("Beijing activity statistics", () => {
       ]),
     ).toEqual([
       [period.since, 2, 50, 2, 26],
+      ["2025-12-31T17:00:00.000Z", 2, 50, 2, 26],
       ["2025-12-31T18:00:00.000Z", 2, 50, 2, 26],
+      ["2025-12-31T19:00:00.000Z", 2, 50, 2, 26],
       ["2025-12-31T20:00:00.000Z", 2, 50, 2, 26],
+      ["2025-12-31T21:00:00.000Z", 2, 50, 2, 26],
       ["2025-12-31T22:00:00.000Z", 3, 70, 3, 73 / 3],
+      ["2025-12-31T23:00:00.000Z", 3, 70, 3, 73 / 3],
       ["2026-01-01T00:00:00.000Z", 3, 70, 3, 73 / 3],
+      ["2026-01-01T01:00:00.000Z", 3, 70, 3, 73 / 3],
       ["2026-01-01T02:00:00.000Z", 3, 70, 3, 73 / 3],
+      ["2026-01-01T03:00:00.000Z", 3, 70, 3, 73 / 3],
       ["2026-01-01T04:00:00.000Z", 4, 100, 4, 26],
+      ["2026-01-01T05:00:00.000Z", 4, 100, 4, 26],
     ]);
     expect(
       rollingActivity([], period).every((point) => point.commits === 0),

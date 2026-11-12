@@ -618,7 +618,7 @@ describe("read-only activity dashboard", () => {
         "星期三",
       );
       expect(
-        container.querySelector(".chart-day.selected .line-marker"),
+        container.querySelector(".chart-day.selected .bar"),
       ).not.toBeNull();
       act(() => {
         day.click();
@@ -731,7 +731,7 @@ describe("read-only activity dashboard", () => {
     expect(days[0]?.getAttribute("aria-label")).not.toContain("周末");
   });
 
-  it("uses every two-hour sample for the line but marks only Beijing midnight, preserving daily bars and independent axes", () => {
+  it("uses every hourly sample without node markers, preserving daily bars and independent axes", () => {
     const commits = [
       { sha: "one", committedAt: window.since, additions: 60, deletions: 40 },
       { sha: "two", committedAt: window.since, additions: 0, deletions: 0 },
@@ -764,33 +764,18 @@ describe("read-only activity dashboard", () => {
       ?.getAttribute("points")
       ?.split(" ")
       .map((point) => point.split(",").map(Number));
-    expect(points).toHaveLength(357);
+    expect(points).toHaveLength(713);
     expect(points?.[0]?.[0]).toBe(0);
     expect(points?.[0]?.[1]).toBeCloseTo(10);
-    expect(points?.[1]?.[0]).toBeCloseTo(1000 / 360);
+    expect(points?.[1]?.[0]).toBeCloseTo(1000 / 720);
     expect(points?.[1]?.[1]).toBeCloseTo(10);
-    expect(points?.[12]?.[1]).toBe(100);
+    expect(points?.[24]?.[1]).toBe(100);
     expect(points?.at(-1)?.[0]).toBeCloseTo(((29 + 16 / 24) / 30) * 1000);
     expect(points?.at(-1)?.[1]).toBeCloseTo(91);
     const bars = container.querySelectorAll<HTMLElement>(".bar");
     expect(bars[0]?.style.height).toBe("90%");
     expect(bars[29]?.style.height).toBe("45%");
-    const markers = container.querySelectorAll<HTMLElement>(".line-marker");
-    expect(markers).toHaveLength(30);
-    expect(markers[0]?.style.left).toBe("0%");
-    expect([...markers].every((marker) => marker.style.left === "0%")).toBe(
-      true,
-    );
-    expect(
-      [...markers].every((marker) =>
-        marker.title.includes("00:00（北京时间）"),
-      ),
-    ).toBe(true);
-    expect(markers[0]?.style.top).toContain("var(--plot-height)");
-    expect(markers[0]?.getAttribute("title")).toContain(
-      "过去 24 小时 2 commits，100 行变化",
-    );
-    expect(markers[0]?.getAttribute("aria-label")).toBe(markers[0]?.title);
+    expect(container.querySelectorAll(".line-marker")).toHaveLength(0);
     expect(container.textContent).toContain("过去 24 小时滚动统计");
     expect(container.querySelector(".commits-axis > span")?.textContent).toBe(
       "2",

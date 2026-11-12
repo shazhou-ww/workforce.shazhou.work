@@ -61,7 +61,7 @@ export interface ActivitySnapshot {
 
 const dayMs = 86_400_000;
 const beijingOffset = 8 * 60 * 60 * 1000;
-const anchorMs = 2 * 60 * 60 * 1000;
+const anchorMs = 60 * 60 * 1000;
 
 export function activityAnchors(
   window: Pick<ActivitySnapshot, "since" | "until">,

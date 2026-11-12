@@ -9,6 +9,24 @@ latest complete dashboard snapshot. No deployment or push is needed for local
 development. Production collection runs hourly at minute 17 UTC; local
 collection remains opt-in through its own D1 configuration.
 
+## Silvermoon 协作
+
+本仓库使用 Silvermoon v2 管理 Idea，项目内容语言为中文（`zh-CN`），共享主线为
+`https://github.com/shazhou-ww/workforce.shazhou.work` 的 `main`
+分支。项目配置与 Idea 保存在 `.silvermoon/`，Silvermoon
+CLI 和配套 skill 由开发设备全局提供，不加入本项目依赖或复制到仓库内。
+
+```powershell
+silvermoon whats-next --audience agent --language zh-CN
+silvermoon list-ideas --audience agent --language zh-CN
+# 有明确目标时创建 Idea，再按报告完成准备工作。
+silvermoon create-idea --audience agent --language zh-CN
+silvermoon whats-next <ULID或别名> --audience agent --language zh-CN
+silvermoon check --worktree --audience agent --language zh-CN
+```
+
+每个 Idea 包含理想世界、主体世界和现实世界三个契约，以及执行清单和事件记录。按 CLI 报告推进；人工接受必须针对已同步主线的准确版本，不能用清单勾选代替。Silvermoon 接入和同步不会授权生产部署，发布仍遵循仓库既有流程。
+
 ## Workspace packages
 
 The root package is `workforce`. Private workspace packages use the

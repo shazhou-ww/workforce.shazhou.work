@@ -1,0 +1,4 @@
+version: 2
+primaryRepository: https://github.com/shazhou-ww/workforce.shazhou.work
+primaryBranch: main
+preferredLanguage: zh-CN

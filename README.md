@@ -105,6 +105,14 @@ OAuth APIs remain available, with `/api/me` still protected. To use them, copy
 and configure the desired providers and callback URLs as described in the
 template. Do not configure providers for the read-only public dashboard.
 
+Authentication uses the branded Chinese `/signin` and `/signout` pages. Existing
+`/api/auth/signin` and `/api/auth/signout` links redirect to these pages; OAuth
+callbacks remain under `/api/auth/callback/*`. Forms POST to Auth.js with its
+cookie-backed CSRF token, and return destinations are validated by Auth.js.
+Signing out requires confirmation; cancelling returns to the public dashboard
+without changing the session. Login does not grant collection permissions:
+server-side administrator checks remain authoritative.
+
 ## Collection
 
 ### Cloudflare collection

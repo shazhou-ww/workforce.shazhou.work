@@ -9,6 +9,7 @@ export default defineConfig({
         "src/ui.tsx",
         "src/app.tsx",
         "src/api.ts",
+        "src/auth-page.tsx",
         "src/collection-control.tsx",
       ],
       provider: "v8",

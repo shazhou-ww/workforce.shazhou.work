@@ -48,15 +48,7 @@ export function Dashboard({
   return (
     <div className="shell">
       <header className="masthead">
-        <a className="brand" href="/" aria-label="Workforce 首页">
-          <svg width="30" height="30" viewBox="0 0 30 30" aria-hidden="true">
-            <path
-              d="M3 8h5v14H3zm9-5h5v19h-5zm9 10h5v9h-5z"
-              fill="currentColor"
-            />
-          </svg>
-          Workforce
-        </a>
+        <WorkforceBrand />
         <div className="header-actions">
           <span className="readonly">公开仓库 · 只读看板</span>
           {collectionControl}
@@ -88,6 +80,17 @@ export function Dashboard({
         <span>代码变化量不等于工作质量或个人贡献</span>
       </footer>
     </div>
+  );
+}
+
+export function WorkforceBrand() {
+  return (
+    <a className="brand" href="/" aria-label="Workforce 首页">
+      <svg width="30" height="30" viewBox="0 0 30 30" aria-hidden="true">
+        <path d="M3 8h5v14H3zm9-5h5v19h-5zm9 10h5v9h-5z" fill="currentColor" />
+      </svg>
+      Workforce
+    </a>
   );
 }
 

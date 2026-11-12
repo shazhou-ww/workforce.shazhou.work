@@ -44,6 +44,35 @@ function render(value = access) {
   return { container, trigger, disclosure, settings, sharing, administration };
 }
 describe("account header actions", () => {
+  it("uses the GitHub profile name and avatar", () => {
+    const { container, trigger } = render({
+      ...access,
+      github: {
+        ...access.github!,
+        name: "The Octocat",
+        avatarUrl: "https://avatars.githubusercontent.com/u/123",
+      },
+    });
+    expect(trigger.getAttribute("aria-label")).toBe("The Octocat 的用户菜单");
+    expect(
+      container.querySelector(".account-identity strong")?.textContent,
+    ).toBe("The Octocat");
+    expect(
+      container.querySelector(".account-avatar img")?.getAttribute("src"),
+    ).toBe("https://avatars.githubusercontent.com/u/123");
+  });
+  it.each([null, "", "   "])(
+    "falls back to the login for an empty GitHub Name (%s)",
+    (name) => {
+      const { container, trigger } = render({
+        ...access,
+        github: { ...access.github!, name },
+      });
+      expect(trigger.getAttribute("aria-label")).toBe("octocat 的用户菜单");
+      expect(container.querySelector(".account-avatar")?.textContent).toBe("O");
+      expect(container.querySelector(".account-avatar img")).toBeNull();
+    },
+  );
   it("groups personal actions under the account, closes before opening a dialog, and returns focus", () => {
     const { container, trigger, disclosure, settings, sharing } = render();
     expect(trigger.getAttribute("aria-label")).toBe("octocat 的用户菜单");

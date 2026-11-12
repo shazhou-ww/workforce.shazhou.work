@@ -14,7 +14,11 @@ export function AccountMenu({
 }) {
   const disclosure = useRef<HTMLDetailsElement>(null);
   const trigger = useRef<HTMLElement>(null);
-  const name = access.github?.login || "已登录用户";
+  const name =
+    access.github?.name?.trim() ||
+    access.github?.login ||
+    access.github?.id ||
+    "已登录用户";
   const active = access.status === "active";
   const status = active
     ? access.isAdmin
@@ -58,7 +62,11 @@ export function AccountMenu({
         aria-label={`${name} 的用户菜单`}
       >
         <span className="account-avatar" aria-hidden="true">
-          {Array.from(name)[0]?.toUpperCase()}
+          {access.github?.avatarUrl ? (
+            <img src={access.github.avatarUrl} alt="" />
+          ) : (
+            Array.from(name)[0]?.toUpperCase()
+          )}
         </span>
         <span className="account-name">{name}</span>
         <svg

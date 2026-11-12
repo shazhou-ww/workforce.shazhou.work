@@ -150,16 +150,18 @@ export async function githubConnection(
   const row = await database(env).one<{
     github_id: string;
     login: string;
+    name: string | null;
     avatar_url: string;
     credential: string;
   }>(
-    "SELECT github_id,login,avatar_url,credential FROM personal_github WHERE user_id=?",
+    "SELECT github_id,login,name,avatar_url,credential FROM personal_github WHERE user_id=?",
     userId,
   );
   return row
     ? {
         id: row.github_id,
         login: row.login,
+        name: row.name,
         avatarUrl: row.avatar_url,
         connected: !!row.credential,
       }
@@ -349,7 +351,12 @@ export async function registerIdentity(
 export async function retainGitHub(
   env: Bindings,
   userId: string,
-  github: { id: string; login: string; avatarUrl: string },
+  github: {
+    id: string;
+    login: string;
+    name?: string | null;
+    avatarUrl: string;
+  },
   accessToken: string,
   scopes: string,
   request: typeof fetch = fetch,
@@ -400,8 +407,8 @@ export async function retainGitHub(
   }
   await store
     .statement(
-      `INSERT INTO personal_github VALUES (?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET
-    login=excluded.login,avatar_url=excluded.avatar_url,credential=excluded.credential,scopes=excluded.scopes,updated_at=excluded.updated_at
+      `INSERT INTO personal_github (user_id,github_id,login,avatar_url,credential,scopes,updated_at,name) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET
+    login=excluded.login,name=excluded.name,avatar_url=excluded.avatar_url,credential=excluded.credential,scopes=excluded.scopes,updated_at=excluded.updated_at
     WHERE personal_github.github_id=excluded.github_id`,
       userId,
       github.id,
@@ -410,6 +417,7 @@ export async function retainGitHub(
       credential ?? (await encryptCredential(env, userId, accessToken)),
       scopes,
       new Date().toISOString(),
+      github.name ?? null,
     )
     .run();
 }
@@ -436,6 +444,7 @@ export async function githubIdentity(
   const profile = await response.json<{
     id: number;
     login: string;
+    name?: string | null;
     avatar_url: string;
   }>();
   if (
@@ -462,6 +471,7 @@ export async function githubIdentity(
   return {
     id: String(profile.id),
     login: profile.login,
+    name: profile.name?.trim() || null,
     avatarUrl: profile.avatar_url,
     verifiedEmails: rows
       .filter((row) => row.verified === true && typeof row.email === "string")

@@ -34,6 +34,7 @@ export function PersonalDashboard({
   const [starting, setStarting] = useState(false);
   const [retry, setRetry] = useState(0);
   const [clock, setClock] = useState(Date.now());
+  const nextRefreshAt = collection?.nextRefreshAt;
   const actionController = useRef<AbortController | null>(null);
   const busy = useRef(false);
   const acceptSnapshot = useCallback((snapshot: ActivitySnapshot) => {
@@ -46,9 +47,20 @@ export function PersonalDashboard({
   }, []);
   useEffect(() => () => actionController.current?.abort(), []);
   useEffect(() => {
-    const timer = setInterval(() => setClock(Date.now()), 30_000);
-    return () => clearInterval(timer);
-  }, []);
+    if (!nextRefreshAt) return;
+    let timer: ReturnType<typeof setTimeout>;
+    const update = () => {
+      const now = Date.now();
+      setClock(now);
+      const remaining = Date.parse(nextRefreshAt) - now;
+      if (remaining > 0) {
+        const unit = remaining > 60_000 ? 60_000 : 1000;
+        timer = setTimeout(update, remaining % unit || unit);
+      }
+    };
+    update();
+    return () => clearTimeout(timer);
+  }, [nextRefreshAt]);
   useEffect(() => {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
@@ -236,8 +248,8 @@ export function PersonalDashboard({
       if (!controller.signal.aborted) setStarting(false);
     }
   };
-  const cooling =
-    !!collection?.nextRefreshAt && Date.parse(collection.nextRefreshAt) > clock;
+  const remaining = nextRefreshAt ? Date.parse(nextRefreshAt) - clock : 0;
+  const cooling = remaining > 0;
   const progress = collection?.latestRun;
   const collectionNotice = activeRunId
     ? progress?.waiting
@@ -275,11 +287,10 @@ export function PersonalDashboard({
             </button>
             {cooling ? (
               <p className="field-note">
-                下次可刷新：
-                {new Date(collection.nextRefreshAt!).toLocaleString("zh-CN", {
-                  timeZone: "Asia/Shanghai",
-                })}
-                （北京时间）
+                {remaining >= 60_000
+                  ? `${Math.ceil(remaining / 60_000)}m`
+                  : `${Math.ceil(remaining / 1000)}s`}{" "}
+                后可刷新
               </p>
             ) : null}
           </div>

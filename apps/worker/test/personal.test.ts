@@ -166,6 +166,7 @@ function githubFetch(
     verified?: boolean;
     orgPermission?: boolean;
     status?: number;
+    name?: string | null;
   } = {},
 ) {
   return vi.fn<typeof fetch>().mockImplementation((input) => {
@@ -187,6 +188,7 @@ function githubFetch(
           {
             id: options.id ?? 101,
             login: "primary",
+            name: options.name ?? null,
             avatar_url: github.avatarUrl,
           },
           {
@@ -644,6 +646,32 @@ describe("personal access and invitations", () => {
 });
 
 describe("OAuth identities and protected credentials", () => {
+  it.each(["GitHub Display Name", null, "   "])(
+    "retains the verified GitHub display name and avatar through sign-in (%s)",
+    async (name) => {
+      const { env } = fixture();
+      await invite(env);
+      vi.stubGlobal("fetch", githubFetch({ name }));
+      const token = await jwtCallback(env);
+      const access = await platformAccess(env, token);
+      expect(access.github).toMatchObject({
+        id: "101",
+        login: "primary",
+        name: name?.trim() || null,
+        avatarUrl: github.avatarUrl,
+      });
+      await retainGitHub(
+        env,
+        access.userId!,
+        { ...github, name: "Updated Name" },
+        "oauth-private-token",
+        "read:user,user:email,read:org",
+      );
+      expect((await platformAccess(env, token)).github?.name).toBe(
+        "Updated Name",
+      );
+    },
+  );
   it("retains credentials only as authenticated encryption bound to user and secret", async () => {
     const { env, store } = fixture();
     const id = await user(env);

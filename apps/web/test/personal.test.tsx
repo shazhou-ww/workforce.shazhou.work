@@ -1194,6 +1194,53 @@ it("shows list-read failure with retry, keeping revoked invitations distinct fro
 });
 
 describe("personal dashboard", () => {
+  it("updates cooldowns by minute, switches to seconds, and unlocks refresh at expiry", async () => {
+    vi.useFakeTimers();
+    const now = new Date("2026-11-12T12:00:00Z");
+    vi.setSystemTime(now);
+    const request = vi.fn<typeof fetch>().mockImplementation((input) =>
+      Promise.resolve(
+        Response.json(
+          input === "/api/personal/activity"
+            ? {
+                snapshot: null,
+                revisionId: null,
+                currentRevisionId: "revision-1",
+                stale: false,
+              }
+            : {
+                activeRunId: null,
+                latestRun: null,
+                nextRefreshAt: new Date(now.getTime() + 120_500).toISOString(),
+              },
+        ),
+      ),
+    );
+    vi.stubGlobal("fetch", request);
+    const { container } = await render(
+      <PersonalDashboard controls={null} revision={0} onConfigure={vi.fn()} />,
+    );
+    const note = () => container.querySelector(".refresh-control .field-note");
+    const button = container.querySelector<HTMLButtonElement>(
+      ".refresh-control button",
+    )!;
+    expect(note()?.textContent).toBe("3m 后可刷新");
+    expect(button.disabled).toBe(true);
+    await act(async () => vi.advanceTimersByTimeAsync(500));
+    expect(note()?.textContent).toBe("2m 后可刷新");
+    await act(async () => vi.advanceTimersByTimeAsync(59_000));
+    expect(note()?.textContent).toBe("2m 后可刷新");
+    await act(async () => vi.advanceTimersByTimeAsync(1000));
+    expect(note()?.textContent).toBe("1m 后可刷新");
+    await act(async () => vi.advanceTimersByTimeAsync(10_000));
+    expect(note()?.textContent).toBe("50s 后可刷新");
+    await act(async () => vi.advanceTimersByTimeAsync(1000));
+    expect(note()?.textContent).toBe("49s 后可刷新");
+    await act(async () => vi.advanceTimersByTimeAsync(49_000));
+    expect(note()).toBeNull();
+    expect(button.disabled).toBe(false);
+    expect(request).toHaveBeenCalledTimes(2);
+  });
   it("keeps the first-use state real, separates personal endpoints and handles cooldown errors", async () => {
     const request = vi.fn<typeof fetch>().mockImplementation((input, init) => {
       if (init?.method === "POST")
@@ -1235,7 +1282,7 @@ describe("personal dashboard", () => {
     expect(onConfigure).toHaveBeenCalledOnce();
     await click(container, "刷新我的统计");
     expect(container.textContent).toContain("刷新受限");
-    expect(container.textContent).toContain("下次可刷新");
+    expect(container.textContent).toContain("m 后可刷新");
     expect(
       request.mock.calls.every(([url]) =>
         String(url).startsWith("/api/personal/"),

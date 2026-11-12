@@ -16,6 +16,7 @@ export interface PersonalConfig {
 export interface GitHubConnection {
   readonly id: string;
   readonly login: string;
+  readonly name?: string | null;
   readonly avatarUrl: string;
   readonly connected: boolean;
 }

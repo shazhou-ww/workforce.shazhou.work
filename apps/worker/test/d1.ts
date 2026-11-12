@@ -87,6 +87,7 @@ export class TestD1 implements D1Database {
       "0002_collection_performance.sql",
       "0003_personal_workforce.sql",
       "0004_public_profiles.sql",
+      "0005_github_display_name.sql",
     ]) {
       this.sqlite.exec("BEGIN");
       this.sqlite.exec(

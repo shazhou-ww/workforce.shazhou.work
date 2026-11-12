@@ -796,11 +796,16 @@ dashboard; do not extend collection to private data without access control.
 ## Manual collection in the dashboard
 
 The personal page heading provides **刷新我的统计** for the current authorized
-user. It is disabled while a run is starting, active, or cooling down. Progress
-and failures stay below the single page heading; completed collection refreshes
-the statistics without leaving the page. Visitors to a public profile never
-receive refresh or task controls. The legacy public collection API and its
-administrator authorization are retained without a frontend entry.
+user. It is disabled while a run is starting, active, or cooling down. The
+cooldown uses compact labels such as `12m 后可刷新` and `50s 后可刷新`, updated
+each minute above one minute and each second in the final minute. The account
+menu uses the GitHub avatar and profile Name, falling back to the GitHub login
+when Name is empty. Existing accounts synchronize Name on their next GitHub
+sign-in or reconnection. Progress and failures stay below the single page
+heading; completed collection refreshes the statistics without leaving the page.
+Visitors to a public profile never receive refresh or task controls. The legacy
+public collection API and its administrator authorization are retained without a
+frontend entry.
 
 For the D1-backed homepage, only the configured source owner can use this
 control, with a current personal session and live qualification. It starts and

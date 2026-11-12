@@ -80,6 +80,7 @@ export interface GitHubDiscoveryResponse {
   readonly github: GitHubConnection | null;
   readonly organizations: readonly GitHubOrganization[];
   readonly repositories: readonly PublicRepository[];
+  readonly organizationAccessUrl?: string;
 }
 
 export interface InvitationRecord {

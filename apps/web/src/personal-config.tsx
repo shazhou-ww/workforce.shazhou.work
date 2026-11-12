@@ -50,6 +50,11 @@ export function PersonalConfiguration({
   const [draftWarning, setDraftWarning] = useState(false);
   const [busy, setBusy] = useState(false);
   const form = useRef<HTMLFormElement>(null);
+  const organizationHeading = useRef<HTMLHeadingElement>(null);
+  const organizationReturn = useRef(
+    new URLSearchParams(location.search).get("github") === "organizations",
+  );
+  const organizationReturnFocused = useRef(false);
   const actionController = useRef<AbortController | null>(null);
   const draftKey = `workforce-config-draft:${access.userId}`;
   const close = () => {
@@ -111,12 +116,35 @@ export function PersonalConfiguration({
     return () => controller.abort();
   }, [github?.connected, attempt]);
 
+  useEffect(() => {
+    if (!github?.connected) return;
+    const refresh = () => setAttempt((value) => value + 1);
+    window.addEventListener("focus", refresh);
+    return () => window.removeEventListener("focus", refresh);
+  }, [github?.connected]);
+
+  useEffect(() => {
+    if (
+      !organizationReturn.current ||
+      organizationReturnFocused.current ||
+      !config ||
+      discovering ||
+      (!discovery && !discoveryError)
+    )
+      return;
+    organizationHeading.current?.scrollIntoView({ block: "start" });
+    organizationHeading.current?.focus({ preventScroll: true });
+    organizationReturnFocused.current = true;
+  }, [config, discovering, discovery, discoveryError]);
+
   const connect = async (organizations: boolean) => {
     setBusy(true);
     setError(null);
     const controller = new AbortController();
     actionController.current = controller;
     try {
+      if (Object.values(inputs).some((value) => value.trim()))
+        throw new Error("请先添加或清空尚未添加的内容，再前往 GitHub 授权。");
       const { url } = await fetchJson<GitHubConnectResponse>(
         "/api/personal/github/connect",
         controller.signal,
@@ -129,8 +157,6 @@ export function PersonalConfiguration({
       const target = new URL(url, location.origin);
       if (target.origin !== location.origin)
         throw new Error("GitHub 授权入口无效，请重试。");
-      if (Object.values(inputs).some((value) => value.trim()))
-        throw new Error("请先添加或清空尚未添加的内容，再前往 GitHub 授权。");
       if (config) sessionStorage.setItem(draftKey, JSON.stringify(config));
       window.location.assign(target.href);
     } catch (cause) {
@@ -317,7 +343,13 @@ export function PersonalConfiguration({
                         </label>
                       ) : null}
                       <div className="section-heading">
-                        <h4>我加入的组织</h4>
+                        <h4
+                          ref={organizationHeading}
+                          tabIndex={-1}
+                          className="organization-heading"
+                        >
+                          我加入的组织
+                        </h4>
                         <button
                           type="button"
                           className="text-button"
@@ -330,6 +362,15 @@ export function PersonalConfiguration({
                       {discoveryError ? (
                         <p role="alert" className="form-error">
                           无法完整读取组织，已保留原有选择：{discoveryError}
+                        </p>
+                      ) : null}
+                      {organizationReturn.current &&
+                      discovery &&
+                      !discoveryError &&
+                      discovery.organizations.length > 0 ? (
+                        <p className="field-note" role="status">
+                          组织授权已完成，请勾选下方{" "}
+                          {discovery.organizations.length} 个组织中的统计范围。
                         </p>
                       ) : null}
                       {discovery?.organizations.map((organization) => (
@@ -352,8 +393,20 @@ export function PersonalConfiguration({
                       {discovery &&
                       !discoveryError &&
                       !discovery.organizations.length ? (
-                        <p className="field-note">
-                          当前授权未返回已加入的组织；这不代表你拥有或管理组织。
+                        <p className="field-note" role="status">
+                          当前授权未返回已加入的组织。如果你确定已加入组织，
+                          请检查组织的第三方应用访问策略，或在下方手动添加公开组织。
+                          放行后回到此窗口会重新读取组织，也可以手动刷新。
+                          <a
+                            href={
+                              discovery.organizationAccessUrl ??
+                              "https://github.com/settings/applications"
+                            }
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            检查 GitHub 组织访问设置
+                          </a>
                         </p>
                       ) : null}
                       <button

@@ -1,6 +1,7 @@
 import { Auth } from "@auth/core";
 import { Hono, type Context } from "hono";
 import { setCookie } from "hono/cookie";
+import { html } from "hono/html";
 import { activityWindow } from "@shazhou-work/workforce-contracts";
 import type { JWT } from "@auth/core/jwt";
 import type {
@@ -592,6 +593,11 @@ personalApi.get("/personal/github", async (context) => {
     github,
     organizations,
     repositories,
+    ...(context.env.AUTH_GITHUB_ID?.trim()
+      ? {
+          organizationAccessUrl: `https://github.com/settings/connections/applications/${encodeURIComponent(context.env.AUTH_GITHUB_ID.trim())}`,
+        }
+      : {}),
   });
 });
 
@@ -655,6 +661,9 @@ personalApi.get("/personal/github/authorize", async (context) => {
     ? "read:user user:email read:org"
     : "read:user user:email";
   const action = `/api/auth/signin/github?scope=${encodeURIComponent(scope)}`;
+  const callbackUrl = intent.organizations
+    ? "/?personal=configure&github=organizations"
+    : "/?personal=configure";
   if (!/^[a-f\d]+$/i.test(csrf.csrfToken))
     throw new PersonalError(
       "unavailable",
@@ -662,7 +671,26 @@ personalApi.get("/personal/github/authorize", async (context) => {
       503,
     );
   return context.html(
-    `<!doctype html><html lang="en"><meta charset="utf-8"><title>Connect GitHub</title><body><form method="post" action="${action}"><input type="hidden" name="csrfToken" value="${csrf.csrfToken}"><input type="hidden" name="callbackUrl" value="/?personal=configure"><button>Continue to GitHub</button></form><script>document.forms[0].submit()</script></body></html>`,
+    html`<!doctype html>
+      <html lang="en">
+        <meta charset="utf-8" /><title>Connect GitHub</title>
+        <body>
+          <form method="post" action="${action}">
+            <input
+              type="hidden"
+              name="csrfToken"
+              value="${csrf.csrfToken}"
+            /><input
+              type="hidden"
+              name="callbackUrl"
+              value="${callbackUrl}"
+            /><button>Continue to GitHub</button>
+          </form>
+          <script>
+            document.forms[0].submit();
+          </script>
+        </body>
+      </html>`,
   );
 });
 

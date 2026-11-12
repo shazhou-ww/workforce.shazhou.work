@@ -231,6 +231,14 @@ for `read:org` separately. Google identities require a trusted verified-email
 claim; unsupported verification claims cannot claim an invitation. Matching
 emails never automatically merge different provider identities.
 
+GitHub account authorization and organization approval are separate. An
+organization can still mark this OAuth app as restricted after the user grants
+`read:org`. If discovery returns no organizations, use the configuration panel's
+GitHub organization-access link and have an authorized organization owner grant
+the app access, then refresh discovery. The application does not bypass those
+policies or change organization access automatically. Manual public account
+scopes remain available.
+
 GitHub access credentials are encrypted server-side in D1 with AES-GCM using a
 domain-separated HKDF key derived from `AUTH_SECRET`. Rotating that secret
 invalidates existing sessions and requires GitHub reconnection. There is no new

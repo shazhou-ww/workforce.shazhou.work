@@ -3,6 +3,8 @@
 用户已明确授权由主 Agent 审批全部阶段门限，并通过现有 GitHub
 Actions 发布生产。仅在实现验收、主线同步与发布前检查完成后使用新的 Release 标签；不从本地直接部署。
 
+发布运行与生产检查见 [验收证据](release-verification.md)。
+
 ## Steps
 
 ### D-S01: 确认上线配置与迁移保障

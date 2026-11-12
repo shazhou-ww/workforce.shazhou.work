@@ -140,6 +140,7 @@ async function jwtCallback(
   input: {
     provider?: string;
     providerId?: string;
+    accessToken?: string;
     profile?: Record<string, unknown>;
   } = {},
   request?: Request,
@@ -152,7 +153,7 @@ async function jwtCallback(
       provider: input.provider ?? "github",
       providerAccountId: input.providerId ?? "101",
       type: "oauth",
-      access_token: "oauth-private-token",
+      access_token: input.accessToken ?? "oauth-private-token",
     },
     profile: input.profile ?? {},
     trigger: "signIn",
@@ -509,6 +510,116 @@ describe("OAuth identities and protected credentials", () => {
     ).rejects.toMatchObject({ code: "unavailable" });
   });
 
+  it("preserves a server-verified read:org credential when a subsequent login grants only basic scopes", async () => {
+    const { env, store } = fixture();
+    const id = await user(env);
+    const before = await store.one<{ credential: string }>(
+      "SELECT credential FROM personal_github WHERE user_id=?",
+      id,
+    );
+    const basic = githubFetch({ orgPermission: false });
+    const organizations = githubFetch();
+    const request = vi.fn<typeof fetch>().mockImplementation((input, init) => {
+      return new Headers(init?.headers).get("authorization") ===
+        "Bearer fresh-basic-credential"
+        ? basic(input, init)
+        : organizations(input, init);
+    });
+    vi.stubGlobal("fetch", request);
+    const token = await jwtCallback(env, {
+      accessToken: "fresh-basic-credential",
+    });
+    expect(token?.platformUserId).toBe(id);
+    expect(JSON.stringify(token)).not.toContain("fresh-basic-credential");
+    expect(JSON.stringify(token)).not.toContain("oauth-private-token");
+    const after = await store.one<{ credential: string; scopes: string }>(
+      "SELECT credential,scopes FROM personal_github WHERE user_id=?",
+      id,
+    );
+    expect(after!.credential).toBe(before!.credential);
+    expect(after!.scopes).toContain("read:org");
+    expect(
+      organizations.mock.calls.some(
+        ([input, init]) =>
+          (input instanceof Request ? input.url : input.toString()) ===
+            "https://api.github.com/user" &&
+          new Headers(init?.headers).get("authorization") ===
+            "Bearer oauth-private-token",
+      ),
+    ).toBe(true);
+    expect(
+      await (await call(env, "/personal/github", await session(id))).json(),
+    ).toMatchObject({
+      organizations: [{ login: "joined-org" }],
+    });
+  });
+
+  it.each([
+    "revoked",
+    "identity_changed",
+    "scope_removed",
+    "unavailable",
+    "unreadable",
+  ] as const)(
+    "stores the fresh credential and requires organization reauthorization when the previous connection is %s",
+    async (failure) => {
+      const { env, store } = fixture();
+      const id = await user(env);
+      if (failure === "unreadable")
+        await store
+          .statement(
+            "UPDATE personal_github SET credential='unreadable' WHERE user_id=?",
+            id,
+          )
+          .run();
+      const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const check = vi.fn<typeof fetch>().mockImplementation(() => {
+        if (failure === "unavailable")
+          return Promise.reject(new Error("sensitive provider response"));
+        return Promise.resolve(
+          Response.json(
+            { id: failure === "identity_changed" ? 202 : 101 },
+            {
+              status: failure === "revoked" ? 401 : 200,
+              headers: {
+                "x-oauth-scopes":
+                  failure === "scope_removed"
+                    ? "read:user,user:email"
+                    : "read:org",
+              },
+            },
+          ),
+        );
+      });
+      await retainGitHub(
+        env,
+        id,
+        github,
+        "fresh-basic-credential",
+        "read:user,user:email",
+        check,
+      );
+      const row = await store.one<{ credential: string; scopes: string }>(
+        "SELECT credential,scopes FROM personal_github WHERE user_id=?",
+        id,
+      );
+      expect(await decryptCredential(env, id, row!.credential)).toBe(
+        "fresh-basic-credential",
+      );
+      expect(row!.scopes).toBe("read:user,user:email");
+      expect(warning).toHaveBeenCalled();
+      expect(JSON.stringify(warning.mock.calls)).not.toContain(
+        "sensitive provider response",
+      );
+      vi.stubGlobal("fetch", githubFetch({ orgPermission: false }));
+      const response = await call(env, "/personal/github", await session(id));
+      expect(response.status).toBe(403);
+      expect(await response.json()).toMatchObject({
+        code: "organization_permission_required",
+      });
+    },
+  );
+
   it("verifies GitHub /user and /user/emails, never public profile or submitted emails", async () => {
     const { env, store } = fixture();
     await invite(env);
@@ -619,10 +730,13 @@ describe("OAuth identities and protected credentials", () => {
     expect(authorization.status).toBe(200);
     const html = await authorization.text();
     expect(html).toContain("read%3Aorg");
+    expect(html.match(/name="callbackUrl"\s+value="([^"]+)"/)?.[1]).toBe(
+      "/?personal=configure&amp;github=organizations",
+    );
     expect(authorization.headers.getSetCookie().join(";")).toContain(
       "csrf-token",
     );
-    const csrf = html.match(/name="csrfToken" value="([^"]+)"/)?.[1];
+    const csrf = html.match(/name="csrfToken"\s+value="([^"]+)"/)?.[1];
     const authCookies = authorization.headers
       .getSetCookie()
       .map((entry) => entry.split(";")[0])
@@ -634,7 +748,7 @@ describe("OAuth identities and protected credentials", () => {
         headers: { Cookie: `${cookie}; ${linkCookie}; ${authCookies}` },
         body: new URLSearchParams({
           csrfToken: csrf!,
-          callbackUrl: "/?personal=configure",
+          callbackUrl: "/?personal=configure&github=organizations",
         }),
       },
       env,
@@ -674,6 +788,35 @@ describe("OAuth identities and protected credentials", () => {
     expect((await call(env, "/personal/github/authorize", cookie)).status).toBe(
       403,
     );
+  });
+
+  it("keeps basic GitHub connection returns separate from organization authorization context", async () => {
+    const { env } = fixture();
+    const id = await user(env);
+    const cookie = await session(id);
+    const connected = await call(
+      env,
+      "/personal/github/connect",
+      cookie,
+      "POST",
+      { organizations: false },
+    );
+    const linkCookie = connected.headers
+      .getSetCookie()
+      .map((entry) => entry.split(";")[0])
+      .join("; ");
+    const response = await call(
+      env,
+      "/personal/github/authorize",
+      `${cookie}; ${linkCookie}`,
+    );
+    expect(response.status).toBe(200);
+    const body = await response.text();
+    expect(body.match(/name="callbackUrl"\s+value="([^"]+)"/)?.[1]).toBe(
+      "/?personal=configure",
+    );
+    expect(body).not.toContain("github=organizations");
+    expect(body).not.toContain("read%3Aorg");
   });
 
   it("rejects cross-session, expired and conflicting link intents without linking by email", async () => {
@@ -966,6 +1109,110 @@ describe("personal configuration, discovery and isolation", () => {
         })
       ).status,
     ).toBe(200);
+  });
+
+  it("paginates app-visible organizations and returns the public OAuth application access settings", async () => {
+    const { env } = fixture();
+    const id = await user(env);
+    const base = githubFetch();
+    const request = vi.fn<typeof fetch>().mockImplementation((input, init) => {
+      const url = input instanceof Request ? input.url : input.toString();
+      if (url.includes("/user/orgs")) {
+        const page = new URL(url).searchParams.get("page");
+        return Promise.resolve(
+          Response.json(
+            page === "1"
+              ? Array.from({ length: 100 }, (_, index) => ({
+                  id: 1000 + index,
+                  login: `joined-${index}`,
+                  avatar_url: "",
+                }))
+              : [
+                  {
+                    id: 2000,
+                    login: "last-org",
+                    avatar_url: "",
+                  },
+                ],
+          ),
+        );
+      }
+      return base(input, init);
+    });
+    vi.stubGlobal("fetch", request);
+    const response = await call(env, "/personal/github", await session(id));
+    expect(response.status).toBe(200);
+    const discovery = await response.json<{
+      organizations: { login: string }[];
+      repositories: { fullName: string }[];
+      organizationAccessUrl: string;
+    }>();
+    expect(discovery.organizations).toHaveLength(101);
+    expect(discovery.organizations.at(-1)?.login).toBe("last-org");
+    expect(discovery.repositories).toMatchObject([
+      { fullName: "primary/public" },
+    ]);
+    expect(discovery.organizationAccessUrl).toBe(
+      "https://github.com/settings/connections/applications/github-id",
+    );
+    expect(discovery.organizationAccessUrl).not.toContain(
+      env.AUTH_GITHUB_SECRET,
+    );
+    expect(
+      request.mock.calls.filter(([input]) =>
+        (input instanceof Request ? input.url : input.toString()).includes(
+          "/user/orgs",
+        ),
+      ),
+    ).toHaveLength(2);
+  });
+
+  it("preserves policy errors and honest empty results from app-visible organization discovery", async () => {
+    const { env } = fixture();
+    const id = await user(env);
+    const cookie = await session(id);
+    const base = githubFetch();
+    let denied = true;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockImplementation((input, init) => {
+        const url = input instanceof Request ? input.url : input.toString();
+        return url.includes("/user/orgs")
+          ? Promise.resolve(
+              Response.json(denied ? {} : [], { status: denied ? 403 : 200 }),
+            )
+          : base(input, init);
+      }),
+    );
+    const blocked = await call(env, "/personal/github", cookie);
+    expect(blocked.status).toBe(403);
+    expect(await blocked.json()).toMatchObject({
+      code: "github_access_denied",
+    });
+    denied = false;
+    expect(
+      await (await call(env, "/personal/github", cookie)).json(),
+    ).toMatchObject({
+      organizations: [],
+      repositories: [{ fullName: "primary/public" }],
+      organizationAccessUrl:
+        "https://github.com/settings/connections/applications/github-id",
+    });
+  });
+
+  it("omits app-specific organization settings when the public client ID is unavailable", async () => {
+    const { env } = fixture();
+    const id = await user(env);
+    vi.stubGlobal("fetch", githubFetch());
+    const withoutClientId = { ...env };
+    delete withoutClientId.AUTH_GITHUB_ID;
+    const response = await call(
+      withoutClientId,
+      "/personal/github",
+      await session(id),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).not.toHaveProperty("organizationAccessUrl");
   });
 
   it("reads joined organizations on demand and never masks permission or connection failures as empty", async () => {

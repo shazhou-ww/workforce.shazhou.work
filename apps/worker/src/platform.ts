@@ -281,8 +281,53 @@ export async function retainGitHub(
   github: { id: string; login: string; avatarUrl: string },
   accessToken: string,
   scopes: string,
+  request: typeof fetch = fetch,
 ) {
-  await database(env)
+  const store = database(env);
+  let credential: string | null = null;
+  if (!scopes.split(/[, ]+/).includes("read:org")) {
+    const previous = await store.one<{
+      github_id: string;
+      credential: string;
+    }>(
+      "SELECT github_id,credential FROM personal_github WHERE user_id=?",
+      userId,
+    );
+    if (previous?.github_id === github.id && previous.credential) {
+      try {
+        const token = await decryptCredential(env, userId, previous.credential);
+        const response = await request("https://api.github.com/user", {
+          headers: {
+            authorization: `Bearer ${token}`,
+            accept: "application/vnd.github+json",
+            "user-agent": "workforce-identity",
+          },
+          signal: AbortSignal.timeout(15_000),
+        });
+        const verifiedScopes = response.headers.get("x-oauth-scopes") ?? "";
+        const profile = response.ok
+          ? await response.json<{ id: number }>()
+          : null;
+        if (
+          profile &&
+          String(profile.id) === github.id &&
+          verifiedScopes.split(/[, ]+/).includes("read:org")
+        ) {
+          credential = previous.credential;
+          scopes = verifiedScopes;
+        } else {
+          console.warn(
+            "Existing GitHub organization credential could not be verified; organization reauthorization is required.",
+          );
+        }
+      } catch {
+        console.warn(
+          "Existing GitHub organization credential validation failed; organization reauthorization is required.",
+        );
+      }
+    }
+  }
+  await store
     .statement(
       `INSERT INTO personal_github VALUES (?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET
     login=excluded.login,avatar_url=excluded.avatar_url,credential=excluded.credential,scopes=excluded.scopes,updated_at=excluded.updated_at
@@ -291,7 +336,7 @@ export async function retainGitHub(
       github.id,
       github.login,
       github.avatarUrl,
-      await encryptCredential(env, userId, accessToken),
+      credential ?? (await encryptCredential(env, userId, accessToken)),
       scopes,
       new Date().toISOString(),
     )

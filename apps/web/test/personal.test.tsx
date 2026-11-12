@@ -624,6 +624,105 @@ describe("personal configuration", () => {
   });
 });
 
+it.each([200, 403])(
+  "returns organization OAuth to the selector and its actual discovery outcome (%s)",
+  async (status) => {
+    window.history.replaceState(
+      null,
+      "",
+      "/?personal=configure&github=organizations",
+    );
+    const scroll = vi
+      .spyOn(HTMLElement.prototype, "scrollIntoView")
+      .mockImplementation(() => {});
+    vi.stubGlobal("fetch", configBackend(status));
+    const { container } = await render(
+      <PersonalConfiguration
+        access={access}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+      />,
+    );
+    const heading = container.querySelector(".organization-heading");
+    expect(document.activeElement).toBe(heading);
+    expect(scroll).toHaveBeenCalledWith({ block: "start" });
+    if (status === 200) {
+      expect(container.textContent).toContain("组织授权已完成，请勾选下方");
+      expect(container.textContent).toContain("new-org");
+    } else {
+      expect(container.textContent).toContain("无法完整读取组织");
+      expect(container.textContent).not.toContain("组织授权已完成");
+    }
+  },
+);
+
+it("guides empty organization discovery to this application's GitHub organization grants", async () => {
+  const request = configBackend();
+  const normal = request.getMockImplementation()!;
+  const organizationAccessUrl =
+    "https://github.com/settings/connections/applications/example-client";
+  request.mockImplementation((input, init) =>
+    input === "/api/personal/github"
+      ? Promise.resolve(
+          Response.json({
+            github: access.github,
+            organizations: [],
+            repositories: [],
+            organizationAccessUrl,
+          }),
+        )
+      : normal(input, init),
+  );
+  vi.stubGlobal("fetch", request);
+  const { container } = await render(
+    <PersonalConfiguration
+      access={access}
+      onClose={vi.fn()}
+      onSaved={vi.fn()}
+    />,
+  );
+  expect(container.textContent).toContain("第三方应用访问策略");
+  expect(container.textContent).toContain("selected-org");
+  const link = container.querySelector("a");
+  expect(link?.getAttribute("href")).toBe(organizationAccessUrl);
+  expect(link?.getAttribute("rel")).toContain("noopener");
+});
+
+it("refreshes organization choices on return from GitHub without clearing selected scope", async () => {
+  const request = configBackend();
+  const normal = request.getMockImplementation()!;
+  let first = true;
+  request.mockImplementation((input, init) => {
+    if (input === "/api/personal/github" && first) {
+      first = false;
+      return Promise.resolve(
+        Response.json({
+          github: access.github,
+          organizations: [],
+          repositories: [],
+        }),
+      );
+    }
+    return normal(input, init);
+  });
+  vi.stubGlobal("fetch", request);
+  const { container } = await render(
+    <PersonalConfiguration
+      access={access}
+      onClose={vi.fn()}
+      onSaved={vi.fn()}
+    />,
+  );
+  expect(container.textContent).toContain("当前授权未返回已加入的组织");
+  await act(async () => window.dispatchEvent(new Event("focus")));
+  expect(container.textContent).not.toContain("当前授权未返回已加入的组织");
+  expect(container.textContent).toContain("new-org");
+  const selected = [...container.querySelectorAll("label")].find((label) =>
+    label.textContent?.includes("selected-org"),
+  );
+  expect(selected?.querySelector("input")?.checked).toBe(true);
+});
+
 it.each(["{invalid-json", '{"enabled":"invalid"}'])(
   "warns about invalid OAuth drafts while preserving server scope and distinguishing empty discovery: %s",
   async (draft) => {
@@ -653,6 +752,11 @@ it.each(["{invalid-json", '{"enabled":"invalid"}'])(
       />,
     );
     expect(container.textContent).toContain("当前授权未返回已加入的组织");
+    expect(
+      container
+        .querySelector('a[href="https://github.com/settings/applications"]')
+        ?.getAttribute("rel"),
+    ).toContain("noopener");
     expect(container.querySelector("img")?.getAttribute("alt")).toBe("");
     expect(container.textContent).toContain("selected-org");
     expect(container.textContent).toContain("配置草稿无效，未保存修改未恢复");
@@ -681,6 +785,12 @@ it("prevents leaving for OAuth with unadded scope and rejects off-origin authori
   await enter(field(container, "includeRepositories"), "octocat/unsaved");
   await click(container, "重新连接 GitHub");
   expect(container.textContent).toContain("再前往 GitHub 授权");
+  expect(
+    request.mock.calls.some(
+      ([input]) => input === "/api/personal/github/connect",
+    ),
+  ).toBe(false);
+  await enter(field(container, "includeRepositories"), "");
   const normal = request.getMockImplementation()!;
   request.mockImplementation((input, init) =>
     input === "/api/personal/github/connect"

@@ -104,6 +104,65 @@ async function click(container: HTMLElement, text = "手动采集") {
 }
 
 describe("administrator collection controls", () => {
+  it("recovers transient progress and snapshot failures after publication without starting another collection", async () => {
+    vi.useFakeTimers();
+    const request = backend(
+      { ...admin, activeRunId: "run-1" },
+      { ...progress, status: "published" },
+    );
+    const normal = request.getMockImplementation()!;
+    let progressReads = 0;
+    let snapshotReads = 0;
+    request.mockImplementation((input, init) => {
+      if (String(input).includes("/runs/") && ++progressReads === 1)
+        return Promise.resolve(
+          Response.json(
+            { error: "temporary database failure" },
+            { status: 500 },
+          ),
+        );
+      if (String(input).startsWith("/api/activity?") && ++snapshotReads === 1)
+        return Promise.resolve(
+          Response.json({ error: "temporary read failure" }, { status: 503 }),
+        );
+      return normal(input, init);
+    });
+    const { container, onSnapshot } = await render(request);
+    await act(async () => vi.advanceTimersByTimeAsync(2000));
+    expect(container.textContent).toContain("采集完成，统计已更新");
+    expect(onSnapshot).toHaveBeenCalledWith(snapshot);
+    expect(request.mock.calls.some(([, init]) => init?.method === "POST")).toBe(
+      false,
+    );
+  });
+
+  it("lets a user resume result reads after persistent failures without triggering collection again", async () => {
+    vi.useFakeTimers();
+    const request = backend(
+      { ...admin, activeRunId: "run-1" },
+      { ...progress, status: "published" },
+    );
+    const normal = request.getMockImplementation()!;
+    let failing = true;
+    request.mockImplementation((input, init) =>
+      String(input).includes("/runs/") && failing
+        ? Promise.resolve(
+            Response.json({ error: "database unavailable" }, { status: 500 }),
+          )
+        : normal(input, init),
+    );
+    const { container, onSnapshot } = await render(request);
+    await act(async () => vi.advanceTimersByTimeAsync(3000));
+    expect(container.textContent).toContain("database unavailable");
+    failing = false;
+    await click(container, "重试读取采集结果");
+    expect(onSnapshot).toHaveBeenCalledWith(snapshot);
+    expect(container.textContent).toContain("采集完成，统计已更新");
+    expect(request.mock.calls.some(([, init]) => init?.method === "POST")).toBe(
+      false,
+    );
+  });
+
   it("refreshes current performance and retains the final metrics after publication", async () => {
     vi.useFakeTimers();
     const request = backend(
@@ -199,16 +258,20 @@ describe("administrator collection controls", () => {
   });
 
   it("retries failures when loading historical performance", async () => {
+    vi.useFakeTimers();
     const request = backend(
       { ...admin, latestRunId: "run-1" },
       { ...progress, status: "published", performance },
     );
     const normal = request.getMockImplementation();
     if (!normal) throw new Error("Missing backend.");
-    let failed = false;
+    let failures = 0;
     request.mockImplementation((input, init) => {
-      if (typeof input === "string" && input.includes("/runs/") && !failed) {
-        failed = true;
+      if (
+        typeof input === "string" &&
+        input.includes("/runs/") &&
+        failures++ < 3
+      ) {
         return Promise.resolve(
           Response.json({ error: "性能读取失败" }, { status: 500 }),
         );
@@ -216,6 +279,7 @@ describe("administrator collection controls", () => {
       return normal(input, init);
     });
     const { container } = await render(request);
+    await act(async () => vi.advanceTimersByTimeAsync(3000));
     await click(container, "采集性能");
     expect(container.textContent).toContain("性能读取失败");
     await click(container, "重试性能指标");
@@ -272,11 +336,14 @@ describe("administrator collection controls", () => {
   );
 
   it("recovers from permission-check failures without replacing dashboard data", async () => {
+    vi.useFakeTimers();
     const request = backend();
-    request.mockResolvedValueOnce(
-      Response.json({ error: "权限检查失败" }, { status: 500 }),
-    );
+    for (let attempt = 0; attempt < 3; attempt++)
+      request.mockResolvedValueOnce(
+        Response.json({ error: "权限检查失败" }, { status: 500 }),
+      );
     const { container } = await render(request);
+    await act(async () => vi.advanceTimersByTimeAsync(3000));
     expect(container.textContent).toContain("权限检查失败");
     await click(container, "重试");
     expect(container.textContent).toContain("手动采集");
@@ -438,6 +505,7 @@ describe("administrator collection controls", () => {
   it.each([401, 403, 500])(
     "handles progress rejection HTTP %s",
     async (status) => {
+      vi.useFakeTimers();
       const request = backend({ ...admin, activeRunId: "run-1" });
       const normal = request.getMockImplementation();
       if (!normal) throw new Error("Missing backend.");
@@ -447,6 +515,7 @@ describe("administrator collection controls", () => {
           : normal(input, init),
       );
       const { container } = await render(request);
+      await act(async () => vi.advanceTimersByTimeAsync(3000));
       expect(container.querySelector("[role=alert]")).not.toBeNull();
     },
   );

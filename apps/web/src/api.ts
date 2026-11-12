@@ -82,18 +82,41 @@ export async function fetchJson<T>(
     readonly body?: string;
   } = {},
 ): Promise<T> {
-  const response = await fetch(path, {
-    ...options,
-    headers: {
-      accept: "application/json",
-      ...(options.body === undefined
-        ? {}
-        : { "Content-Type": "application/json" }),
-    },
-    credentials: "same-origin",
-    cache: "no-store",
-    signal,
-  });
+  let response: Response;
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      response = await fetch(path, {
+        ...options,
+        headers: {
+          accept: "application/json",
+          ...(options.body === undefined
+            ? {}
+            : { "Content-Type": "application/json" }),
+        },
+        credentials: "same-origin",
+        cache: "no-store",
+        signal,
+      });
+    } catch (error) {
+      if (
+        options.method ||
+        attempt >= 2 ||
+        signal.aborted ||
+        !(error instanceof TypeError)
+      )
+        throw error;
+      await retryRead(attempt, signal);
+      continue;
+    }
+    if (
+      options.method ||
+      attempt >= 2 ||
+      ![500, 502, 503, 504].includes(response.status)
+    )
+      break;
+    await response.body?.cancel();
+    await retryRead(attempt, signal);
+  }
   if (!response.ok) {
     const pathname = path.split("?")[0];
     const personal =
@@ -137,4 +160,26 @@ export async function fetchJson<T>(
     throw new ApiError(response.status, message, code, field, retryAt);
   }
   return (await response.json()) as T;
+}
+
+function retryRead(attempt: number, signal: AbortSignal): Promise<void> {
+  signal.throwIfAborted();
+  return new Promise((resolve, reject) => {
+    const abort = () => {
+      clearTimeout(timer);
+      reject(
+        signal.reason instanceof Error
+          ? signal.reason
+          : new DOMException("Read retry aborted.", "AbortError"),
+      );
+    };
+    const timer = setTimeout(
+      () => {
+        signal.removeEventListener("abort", abort);
+        resolve();
+      },
+      1000 * (attempt + 1),
+    );
+    signal.addEventListener("abort", abort, { once: true });
+  });
 }

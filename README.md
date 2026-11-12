@@ -99,6 +99,13 @@ repository list only, not the global chart or totals. The browser re-reads the
 snapshot every five minutes. Data older than three hours is visibly marked
 stale.
 
+Read-only browser requests retry transient network failures and HTTP
+500/502/503/504 responses at most twice, after one and two seconds.
+Authentication rejections and mutations are never retried automatically. If
+collection-result reads still fail, "重试读取采集结果" resumes reading the
+existing task rather than starting another collection; the previous complete
+snapshot remains visible.
+
 The top row places 30-day statistics beside the yearly heatmap; the existing
 composite chart spans the row below. Additions and deletions share one
 statistic. "涉及项目" counts repositories with at least one commit in the

@@ -190,7 +190,7 @@ describe("dashboard data loading", () => {
         root.render(<App />);
       });
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+        await vi.advanceTimersByTimeAsync(5 * 60 * 1000 + 3000);
       });
       expect(container.textContent).toContain("owner/project");
       expect(container.textContent).toContain("已保留上次完整结果");
@@ -252,6 +252,7 @@ describe("dashboard data loading", () => {
   ])(
     "shows server errors without pretending activity is zero: $message",
     async ({ body, message }) => {
+      vi.useFakeTimers();
       vi.stubGlobal(
         "fetch",
         vi
@@ -264,6 +265,7 @@ describe("dashboard data loading", () => {
         await act(async () => {
           root.render(<App />);
         });
+        await act(async () => vi.advanceTimersByTimeAsync(3000));
         expect(container.textContent).toContain(message);
         expect(container.querySelector("[role=alert]")).not.toBeNull();
       } finally {

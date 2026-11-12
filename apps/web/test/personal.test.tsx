@@ -536,12 +536,12 @@ describe("personal configuration", () => {
   });
 
   it("handles configuration read failure with retry and keeps failed OAuth connection explicit", async () => {
+    vi.useFakeTimers();
     const request = configBackend();
     const normal = request.getMockImplementation()!;
-    let failed = false;
+    let failures = 0;
     request.mockImplementation((input, init) => {
-      if (input === "/api/personal/config" && !failed) {
-        failed = true;
+      if (input === "/api/personal/config" && failures++ < 3) {
         return Promise.resolve(
           Response.json({ error: "配置读取失败" }, { status: 503 }),
         );
@@ -560,6 +560,7 @@ describe("personal configuration", () => {
         onSaved={vi.fn()}
       />,
     );
+    await act(async () => vi.advanceTimersByTimeAsync(3000));
     expect(container.textContent).toContain("配置读取失败");
     await click(container, "重试读取配置");
     await click(container, "补充组织授权（read:org）");
@@ -1032,6 +1033,7 @@ describe("personal access and invitation management", () => {
   });
 
   it("shows failed access checks and retries without granting defaults", async () => {
+    vi.useFakeTimers();
     window.history.replaceState(null, "", "/?personal=1");
     const request = vi
       .fn<typeof fetch>()
@@ -1042,20 +1044,21 @@ describe("personal access and invitation management", () => {
       );
     vi.stubGlobal("fetch", request);
     const { container } = await render(<App />);
+    await act(async () => vi.advanceTimersByTimeAsync(3000));
     expect(container.textContent).toContain("无法检查个人资格");
     await click(container, "重试");
-    expect(request).toHaveBeenCalledTimes(2);
+    expect(request).toHaveBeenCalledTimes(4);
     expect(container.querySelector("dialog")).toBeNull();
   });
 });
 
 it("shows list-read failure with retry, keeping revoked invitations distinct from suspended users", async () => {
-  let failed = false;
+  vi.useFakeTimers();
+  let failures = 0;
   vi.stubGlobal(
     "fetch",
     vi.fn<typeof fetch>().mockImplementation(() => {
-      if (!failed) {
-        failed = true;
+      if (failures++ < 3) {
         return Promise.resolve(
           Response.json({ error: "邀请列表不可用" }, { status: 503 }),
         );
@@ -1078,6 +1081,7 @@ it("shows list-read failure with retry, keeping revoked invitations distinct fro
   const { container } = await render(
     <InvitationManagement userId="user-1" onClose={vi.fn()} />,
   );
+  await act(async () => vi.advanceTimersByTimeAsync(3000));
   expect(container.textContent).toContain("邀请列表不可用");
   await click(container, "重新读取列表");
   expect(container.textContent).toContain("已撤销邀请");
@@ -1257,8 +1261,8 @@ describe("personal dashboard", () => {
                 stale: false,
               })
             : Response.json(
-                { error: attempts === 2 ? "网络暂时不可用" : "个人资格已停用" },
-                { status: attempts === 2 ? 503 : 403 },
+                { error: attempts <= 4 ? "网络暂时不可用" : "个人资格已停用" },
+                { status: attempts <= 4 ? 503 : 403 },
               ),
         );
       }
@@ -1275,7 +1279,7 @@ describe("personal dashboard", () => {
       <PersonalDashboard controls={null} revision={0} onConfigure={vi.fn()} />,
     );
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      await vi.advanceTimersByTimeAsync(5 * 60_000 + 3000);
     });
     expect(container.textContent).toContain("private-scope");
     expect(container.textContent).toContain("网络暂时不可用");
@@ -1285,6 +1289,7 @@ describe("personal dashboard", () => {
   });
 
   it("keeps poll failures visible and retryable instead of pretending collection completed", async () => {
+    vi.useFakeTimers();
     const request = vi.fn<typeof fetch>().mockImplementation((input) =>
       Promise.resolve(
         input === "/api/personal/activity"
@@ -1302,6 +1307,7 @@ describe("personal dashboard", () => {
     const { container } = await render(
       <PersonalDashboard controls={null} revision={0} onConfigure={vi.fn()} />,
     );
+    await act(async () => vi.advanceTimersByTimeAsync(3000));
     expect(container.textContent).toContain("任务状态读取失败");
     expect(container.textContent).not.toContain("采集完成，个人统计已更新");
     await click(container, "重试读取");
@@ -1309,7 +1315,7 @@ describe("personal dashboard", () => {
       request.mock.calls.filter(
         ([url]) => url === "/api/personal/collection/run-1",
       ),
-    ).toHaveLength(2);
+    ).toHaveLength(4);
   });
 });
 
@@ -1344,6 +1350,7 @@ it.each(["poll", "trigger"] as const)(
 );
 
 it("does not show invented zeroes when the initial personal request fails", async () => {
+  vi.useFakeTimers();
   const request = vi
     .fn<typeof fetch>()
     .mockImplementation(() =>
@@ -1355,6 +1362,7 @@ it("does not show invented zeroes when the initial personal request fails", asyn
   const { container } = await render(
     <PersonalDashboard controls={null} revision={0} onConfigure={vi.fn()} />,
   );
+  await act(async () => vi.advanceTimersByTimeAsync(3000));
   expect(container.textContent).toContain("首次请求暂时不可用");
   expect(container.textContent).not.toContain("每日工作脉搏");
   expect(

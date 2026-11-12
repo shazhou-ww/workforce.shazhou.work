@@ -10,6 +10,7 @@ afterEach(() => {
     for (const root of roots.splice(0)) root.unmount();
   });
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 function backend() {
@@ -113,14 +114,24 @@ describe("custom authentication pages", () => {
   });
 
   it("surfaces failed initialization, then loads forms after retry", async () => {
-    const request = backend().mockResolvedValueOnce(
-      Response.json({ error: "服务暂不可用" }, { status: 503 }),
+    vi.useFakeTimers();
+    const request = backend();
+    const normal = request.getMockImplementation()!;
+    let failing = true;
+    request.mockImplementation((path, init) =>
+      failing
+        ? Promise.resolve(
+            Response.json({ error: "服务暂不可用" }, { status: 503 }),
+          )
+        : normal(path, init),
     );
     const { container } = await render("signin", request);
+    await act(async () => vi.advanceTimersByTimeAsync(3000));
     expect(container.querySelector('[role="alert"]')?.textContent).toContain(
       "服务暂不可用",
     );
     expect(container.querySelector("form")).toBeNull();
+    failing = false;
     await act(async () => container.querySelector("button")?.click());
     expect(container.querySelectorAll("form")).toHaveLength(2);
   });

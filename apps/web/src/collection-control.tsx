@@ -378,6 +378,17 @@ export function CollectionControl({
           role={notice.kind === "error" ? "alert" : "status"}
         >
           {notice.message}
+          {notice.kind === "error" && access?.canCollect && viewedRunId ? (
+            <button
+              className="text-button"
+              onClick={() => {
+                setNotice(null);
+                setRunId(viewedRunId);
+              }}
+            >
+              重试读取采集结果
+            </button>
+          ) : null}
         </p>
       ) : null}
       {access?.canCollect && viewedRunId && performanceOpen ? (

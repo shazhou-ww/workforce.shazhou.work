@@ -30,7 +30,7 @@ catalog:
   semver: ^7.8.5
   turbo: ^2.11.10
   typescript: ^6.0.3
-  typescript-eslint: ^8.72.1
+  typescript-eslint: ^8.72.2
   vite: ^8.3.5
   vitest: ^5.0.4
   wrangler: ^4.151.1

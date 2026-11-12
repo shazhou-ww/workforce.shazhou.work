@@ -13,7 +13,9 @@ export default {
   ): Promise<void> {
     if (env.COLLECTION_ENABLED !== "true") return;
     const results = await Promise.allSettled([
-      startCollection(env, controller.scheduledTime),
+      ...(env.PUBLIC_ACTIVITY_GITHUB_ID
+        ? []
+        : [startCollection(env, controller.scheduledTime)]),
       schedulePersonalCollections(env, controller.scheduledTime),
     ]);
     const failure = results.find((result) => result.status === "rejected");

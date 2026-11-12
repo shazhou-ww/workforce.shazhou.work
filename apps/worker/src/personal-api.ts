@@ -402,7 +402,7 @@ export async function schedulePersonalCollections(
   }
 }
 
-async function reconcilePersonalRun(env: Bindings, userId: string) {
+export async function reconcilePersonalRun(env: Bindings, userId: string) {
   if (!env.DB) return;
   const store = new CollectionStore(env.DB, userId);
   const state = await store.one<{ active_run_id: string | null }>(

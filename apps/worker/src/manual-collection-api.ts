@@ -10,12 +10,27 @@ import {
   canCollectActivity,
   collectionAdminIds,
   getConfiguredProviders,
+  requestToken,
 } from "./auth.js";
 import { startCollection } from "./collection-api.js";
 import { CollectionStore, type CollectionRun } from "./collection-store.js";
 import type { Bindings } from "./env.js";
+import { publicActivityOwner } from "./public-activity.js";
+import { PersonalError } from "./platform.js";
+import {
+  reconcilePersonalRun,
+  startPersonalCollection,
+} from "./personal-api.js";
 
 export const manualCollectionApi = new Hono<{ Bindings: Bindings }>();
+
+async function sourceOwner(request: Request, env: Bindings) {
+  const token = await requestToken(request, env);
+  if (typeof token?.platformUserId !== "string") return null;
+  return token.platformUserId === (await publicActivityOwner(env))
+    ? token.platformUserId
+    : null;
+}
 
 manualCollectionApi.use("*", async (context, next) => {
   context.header("Cache-Control", "no-store");
@@ -31,18 +46,32 @@ manualCollectionApi.get("/", async (context) => {
     context.env.AUTH_SECRET.length >= 32 &&
     collectionAdminIds(context.env).length > 0;
   const user = loginEnabled ? await getAuthUser(context) : null;
-  const canCollect = canCollectActivity(user, context.env);
+  const owner =
+    context.env.PUBLIC_ACTIVITY_GITHUB_ID && user
+      ? await sourceOwner(context.req.raw, context.env)
+      : null;
+  const canCollect =
+    canCollectActivity(user, context.env) &&
+    (!context.env.PUBLIC_ACTIVITY_GITHUB_ID || owner !== null);
   let activeRunId: string | null = null;
   let latestRunId: string | null = null;
   if (canCollect && context.env.DB) {
-    const state = await new CollectionStore(context.env.DB).one<{
+    if (owner) await reconcilePersonalRun(context.env, owner);
+    const store = new CollectionStore(context.env.DB, owner ?? undefined);
+    const state = await store.one<{
       active_run_id: string | null;
-    }>("SELECT active_run_id FROM collection_state WHERE id=1");
+    }>(
+      owner
+        ? "SELECT active_run_id FROM personal_state WHERE id=?"
+        : "SELECT active_run_id FROM collection_state WHERE id=?",
+      owner ?? 1,
+    );
     activeRunId = state?.active_run_id ?? null;
-    const latest = await new CollectionStore(context.env.DB).one<{
+    const latest = await store.one<{
       id: string;
     }>(
-      "SELECT r.id FROM collection_runs r JOIN config_revisions c ON c.id=r.revision_id WHERE c.config_id='default' ORDER BY r.started_at DESC,r.id DESC LIMIT 1",
+      "SELECT r.id FROM collection_runs r JOIN config_revisions c ON c.id=r.revision_id WHERE c.config_id=? ORDER BY r.started_at DESC,r.id DESC LIMIT 1",
+      owner ?? "default",
     );
     latestRunId = latest?.id ?? null;
   }
@@ -69,10 +98,24 @@ manualCollectionApi.post("/", verifyAuth(), async (context) => {
     return context.json({ error: "请从本站页面触发采集。" }, 403);
   }
   try {
-    const result = await startCollection(context.env);
+    const owner = context.env.PUBLIC_ACTIVITY_GITHUB_ID
+      ? await sourceOwner(context.req.raw, context.env)
+      : null;
+    if (context.env.PUBLIC_ACTIVITY_GITHUB_ID && !owner)
+      return context.json({ error: "只有公开数据源本人可以刷新统计。" }, 403);
+    const result = owner
+      ? await startPersonalCollection(context.env, owner)
+      : await startCollection(context.env);
     if (!result) throw new Error("Manual collection unexpectedly skipped.");
     return context.json<CollectionTriggerResponse>(result, 202);
   } catch (error) {
+    if (error instanceof PersonalError) {
+      console.warn("Public source personal refresh rejected:", error.code);
+      return context.json(
+        { error: error.message, code: error.code },
+        error.status,
+      );
+    }
     if (!(error instanceof HTTPException)) throw error;
     console.warn("Manual collection rejected:", error.message);
     return context.json(
@@ -95,10 +138,17 @@ manualCollectionApi.get("/runs/:id", verifyAuth(), async (context) => {
   if (!context.env.DB || !context.env.COLLECTION) {
     return context.json({ error: "采集任务尚未配置完整。" }, 503);
   }
-  const store = new CollectionStore(context.env.DB);
+  const owner = context.env.PUBLIC_ACTIVITY_GITHUB_ID
+    ? await sourceOwner(context.req.raw, context.env)
+    : null;
+  if (context.env.PUBLIC_ACTIVITY_GITHUB_ID && !owner)
+    return context.json({ error: "只有公开数据源本人可以读取任务。" }, 403);
+  if (owner) await reconcilePersonalRun(context.env, owner);
+  const store = new CollectionStore(context.env.DB, owner ?? undefined);
   const run = await store.one<CollectionRun>(
-    "SELECT r.* FROM collection_runs r JOIN config_revisions c ON c.id=r.revision_id WHERE r.id=? AND c.config_id='default'",
+    "SELECT r.* FROM collection_runs r JOIN config_revisions c ON c.id=r.revision_id WHERE r.id=? AND c.config_id=?",
     context.req.param("id"),
+    owner ?? "default",
   );
   if (!run) {
     console.warn("Requested collection run was not found.");

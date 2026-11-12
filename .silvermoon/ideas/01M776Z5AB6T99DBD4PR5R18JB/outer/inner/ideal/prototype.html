@@ -297,6 +297,98 @@
         font-weight: 400;
         margin-left: 6px;
       }
+      .account-box,
+      .list-heading,
+      .entry-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      .account-box {
+        padding: 18px;
+        background: var(--page);
+        border-radius: 8px;
+      }
+      .account-name {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .avatar {
+        display: grid;
+        place-items: center;
+        width: 42px;
+        height: 42px;
+        border-radius: 50%;
+        background: #dce6ff;
+        color: #2148a1;
+        font-weight: 700;
+      }
+      .account-name p {
+        margin: 3px 0 0;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .entry-list {
+        padding: 0;
+        margin: 12px 0;
+        list-style: none;
+      }
+      .entry-list li {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 12px 0;
+        border-bottom: 1px solid var(--line);
+        font-size: 14px;
+      }
+      .entry-list li > div {
+        min-width: 0;
+        overflow-wrap: anywhere;
+      }
+      .entry-list li small {
+        display: block;
+        margin-top: 5px;
+        line-height: 1.7;
+      }
+      .entry-list button {
+        flex-shrink: 0;
+        min-height: 34px;
+        padding: 5px 10px;
+        font-size: 13px;
+      }
+      .entry-row input {
+        min-width: 0;
+        flex: 1;
+      }
+      .entry-row button {
+        flex-shrink: 0;
+      }
+      .scope-box {
+        margin-top: 20px;
+        padding: 16px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+      }
+      .scope-box .choice:last-child {
+        margin-bottom: 0;
+      }
+      .demo-control {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 18px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .demo-control select {
+        width: auto;
+        font-size: 12px;
+        min-height: 36px;
+      }
       .choice {
         display: flex;
         align-items: start;
@@ -760,41 +852,53 @@
           <div class="columns">
             <form id="config-form" novalidate>
               <div class="sheet">
-                <section class="form-section" aria-labelledby="author-heading">
-                  <h2 id="author-heading">识别谁的提交</h2>
+                <section
+                  class="form-section"
+                  aria-labelledby="connection-heading"
+                >
+                  <h2 id="connection-heading">连接你的 GitHub</h2>
                   <p class="section-intro">
-                    主作者账号或邮箱匹配任意一项，就计入。不是要求两项同时匹配。
+                    主账号通过 OAuth 确认，不接受任意填写。已使用 GitHub
+                    登录时复用身份，缺少权限再补充授权。
                   </p>
-                  <div class="field">
-                    <label for="author-logins">GitHub 作者账号</label
-                    ><textarea
-                      id="author-logins"
-                      rows="2"
-                      spellcheck="false"
-                      aria-describedby="author-help"
-                    >
-demo-coder</textarea>
-                    <p class="help" id="author-help">
-                      一行一个。默认本人账号，也可补充自己曾用的其他账号。
-                    </p>
+                  <div id="github-account" class="account-box">
+                    <div class="account-name">
+                      <span class="avatar" aria-hidden="true">D</span>
+                      <div>
+                        <strong id="github-login">demo-coder</strong>
+                        <p>GitHub 主账号 · OAuth 身份只读</p>
+                      </div>
+                    </div>
+                    <span class="badge">已连接</span>
                   </div>
-                  <div class="field">
-                    <label for="author-emails"
-                      >用于识别本人提交的邮箱<span class="optional"
-                        >可选</span
-                      ></label
-                    ><textarea
-                      id="author-emails"
-                      rows="3"
-                      spellcheck="false"
-                      aria-describedby="email-help"
+                  <p id="github-unconnected" class="notice warning" hidden>
+                    尚未连接
+                    GitHub。平台邀请只授予使用资格，还需要连接你的代码账号。
+                  </p>
+                  <div class="actions">
+                    <button
+                      type="button"
+                      class="primary"
+                      id="connect-github"
+                      hidden
                     >
-demo@example.invalid
-12345+demo-coder@users.noreply.github.com</textarea>
-                    <p class="help" id="email-help">
-                      一行一个，支持历史邮箱。这些邮箱用于纳入提交，不用于领取邀请或登录。
-                    </p>
+                      连接 GitHub
+                    </button>
+                    <button type="button" id="github-demo-toggle">
+                      演示：切换未连接
+                    </button>
                   </div>
+                  <p class="help">
+                    此原型不跳转
+                    OAuth、不产生令牌。正式连接由服务端验证；只读公开仓库，不申请宽泛的
+                    repo 权限。
+                  </p>
+                  <p
+                    id="github-feedback"
+                    class="status"
+                    role="status"
+                    aria-live="polite"
+                  ></p>
                 </section>
                 <section
                   class="form-section"
@@ -802,7 +906,7 @@ demo@example.invalid
                 >
                   <h2 id="repository-heading">去哪里找提交</h2>
                   <p class="section-intro">
-                    扫描组织仓库时，仍然只统计上面匹配到的作者。
+                    勾选要扫描的账号和组织，仍然只计入与你的作者身份匹配的提交。
                   </p>
                   <fieldset style="border: 0; padding: 0; margin: 0">
                     <legend style="font-size: 14px; font-weight: 600">
@@ -825,35 +929,202 @@ demo@example.invalid
                     >
                   </fieldset>
                   <div class="field" id="accounts-field">
-                    <label for="accounts">扫描的个人账号或组织</label
-                    ><textarea id="accounts" rows="2" spellcheck="false">
-demo-coder
-sample-studio</textarea>
+                    <label class="choice"
+                      ><input
+                        type="checkbox"
+                        data-scope
+                        data-primary-scope
+                        value="demo-coder"
+                        checked
+                      /><span>我的公开仓库：demo-coder</span></label
+                    >
+                    <div class="scope-box">
+                      <div class="list-heading">
+                        <h3>我加入的组织</h3>
+                        <button type="button" id="refresh-organizations">
+                          刷新列表
+                        </button>
+                      </div>
+                      <p class="help">
+                        以下为虚构组织。不要求你是 owner，也不授权读取私有仓库。
+                      </p>
+                      <div
+                        id="organization-notice"
+                        class="help"
+                        role="status"
+                      ></div>
+                      <div id="organization-list">
+                        <label class="choice"
+                          ><input
+                            type="checkbox"
+                            data-scope
+                            value="sample-studio"
+                            checked
+                          /><span>sample-studio</span></label
+                        >
+                        <label class="choice"
+                          ><input
+                            type="checkbox"
+                            data-scope
+                            value="example-tools"
+                          /><span>example-tools</span></label
+                        >
+                      </div>
+                      <button type="button" id="authorize-organizations" hidden>
+                        补充组织授权
+                      </button>
+                      <label class="demo-control" for="organization-demo"
+                        >原型：组织读取状态<select id="organization-demo">
+                          <option value="ready">正常</option>
+                          <option value="permission">权限不足</option>
+                          <option value="error">读取失败</option>
+                        </select></label
+                      >
+                    </div>
+                    <div class="field">
+                      <label for="manual-input"
+                        >手动补充公开账号或组织<span class="optional"
+                          >可选</span
+                        ></label
+                      >
+                      <p class="help">
+                        用于你未加入但有贡献的组织；这只是扫描范围，不是作者身份。
+                      </p>
+                      <ul
+                        id="manual-list"
+                        class="entry-list"
+                        aria-label="手动补充的扫描账号"
+                      ></ul>
+                      <div class="entry-row">
+                        <input
+                          id="manual-input"
+                          placeholder="account-or-organization"
+                          autocomplete="off"
+                          spellcheck="false"
+                          aria-describedby="manual-feedback"
+                        /><button type="button" data-add-entry="manual">
+                          添加账号
+                        </button>
+                      </div>
+                      <p
+                        id="manual-feedback"
+                        class="status"
+                        role="status"
+                        aria-live="polite"
+                      ></p>
+                    </div>
                   </div>
                   <div class="field">
-                    <label for="includes"
+                    <label for="includes-input"
                       >指定纳入的仓库<span
                         class="optional"
                         id="include-optional"
                         >可选</span
                       ></label
-                    ><textarea
-                      id="includes"
-                      rows="2"
-                      spellcheck="false"
-                      placeholder="owner/repository"
                     >
-example-tools/parser</textarea>
+                    <ul
+                      id="includes-list"
+                      class="entry-list"
+                      aria-label="指定纳入的仓库"
+                    ></ul>
+                    <div class="entry-row">
+                      <input
+                        id="includes-input"
+                        list="repository-options"
+                        autocomplete="off"
+                        spellcheck="false"
+                        placeholder="搜索或输入 owner/name"
+                        aria-describedby="includes-feedback"
+                      /><button type="button" data-add-entry="includes">
+                        添加仓库
+                      </button>
+                    </div>
+                    <p
+                      id="includes-feedback"
+                      class="status"
+                      role="status"
+                      aria-live="polite"
+                    ></p>
                     <p class="help">
-                      一行一个 owner/name，可统计自己在其他仓库里的贡献。
+                      可搜索虚构公开仓库建议，也可手动纳入其他仓库；离线不核验真实公开性。
                     </p>
                   </div>
                   <div class="field">
-                    <label for="excludes"
+                    <label for="excludes-input"
                       >排除的仓库<span class="optional">可选</span></label
-                    ><textarea id="excludes" rows="2" spellcheck="false">
-demo-coder/sandbox</textarea>
+                    >
+                    <ul
+                      id="excludes-list"
+                      class="entry-list"
+                      aria-label="排除的仓库"
+                    ></ul>
+                    <div class="entry-row">
+                      <input
+                        id="excludes-input"
+                        list="repository-options"
+                        autocomplete="off"
+                        spellcheck="false"
+                        placeholder="搜索或输入 owner/name"
+                        aria-describedby="excludes-feedback"
+                      /><button type="button" data-add-entry="excludes">
+                        添加仓库
+                      </button>
+                    </div>
+                    <p
+                      id="excludes-feedback"
+                      class="status"
+                      role="status"
+                      aria-live="polite"
+                    ></p>
                     <p class="help">排除始终优先，即使仓库也在纳入列表中。</p>
+                  </div>
+                  <datalist id="repository-options">
+                    <option value="demo-coder/workbench"></option>
+                    <option value="demo-coder/sandbox"></option>
+                    <option value="sample-studio/website"></option>
+                    <option value="example-tools/parser"></option>
+                  </datalist>
+                  <p
+                    id="repository-conflicts"
+                    class="notice warning"
+                    role="status"
+                    hidden
+                  ></p>
+                </section>
+                <section class="form-section" aria-labelledby="author-heading">
+                  <h2 id="author-heading">
+                    补充历史作者身份<span class="optional">可选</span>
+                  </h2>
+                  <p class="section-intro">
+                    主账号、历史账号或邮箱匹配任意一项就计入。补充身份只用于筛选提交，不代表已经验证归属。
+                  </p>
+                  <div class="field">
+                    <label for="author-logins">历史作者账号</label
+                    ><textarea
+                      id="author-logins"
+                      rows="2"
+                      spellcheck="false"
+                      placeholder="一行一个历史 GitHub 账号"
+                      aria-describedby="author-help"
+                    ></textarea>
+                    <p class="help" id="author-help">
+                      已连接的主账号自动计入，无需重复填写。此处不能替代 OAuth
+                      连接。
+                    </p>
+                  </div>
+                  <div class="field">
+                    <label for="author-emails">用于识别本人提交的邮箱</label
+                    ><textarea
+                      id="author-emails"
+                      rows="3"
+                      spellcheck="false"
+                      aria-describedby="email-help"
+                    >
+demo@example.invalid
+12345+demo-coder@users.noreply.github.com</textarea>
+                    <p class="help" id="email-help">
+                      一行一个，支持历史邮箱；用于纳入提交，不用于领取邀请或登录，不要求旧邮箱仍能收信。
+                    </p>
                   </div>
                 </section>
                 <section class="form-section" aria-labelledby="update-heading">
@@ -1128,6 +1399,8 @@ demo-coder/sandbox</textarea>
         cooldown: false,
         revision: 1,
         automatic: true,
+        githubConnected: true,
+        organizationState: "ready",
         pendingAction: null,
         users: [
           { email: "owner@example.invalid", status: "admin" },
@@ -1154,15 +1427,60 @@ demo-coder/sandbox</textarea>
       const mode = () =>
         document.querySelector('input[name="repository-mode"]:checked').value;
       const member = () => ["member", "admin"].includes(state.scene);
-      const configFields = [
-        "author-logins",
-        "author-emails",
-        "accounts",
-        "includes",
-        "excludes",
+      const configFields = ["author-logins", "author-emails"];
+      const entryLists = {
+        manual: [],
+        includes: ["example-tools/parser"],
+        excludes: ["demo-coder/sandbox"],
+      };
+      const entryNames = {
+        manual: "扫描账号",
+        includes: "纳入仓库",
+        excludes: "排除仓库",
+      };
+      const loginPattern = /^[a-z\d](?:[a-z\d-]{0,38})$/i;
+      const repoPattern = /^[a-z\d][a-z\d-]{0,38}\/[a-z\d_.-]{1,100}$/i;
+      const sampleRepositories = new Set([
+        "demo-coder/workbench",
+        "demo-coder/sandbox",
+        "sample-studio/website",
+        "example-tools/parser",
+      ]);
+      const sampleRepositoryErrors = new Map([
+        [
+          "demo-coder/private-notes",
+          "示例：该仓库为私有仓库，第一版只支持公开仓库。",
+        ],
+        ["demo-coder/missing-repo", "示例：仓库不存在，请检查 owner/name。"],
+        [
+          "demo-coder/unavailable",
+          "示例：暂时无法核验仓库，请稍后重试；不会当作仓库不存在。",
+        ],
+      ]);
+      const authorLogins = () => [
+        ...new Set([
+          ...(state.githubConnected ? ["demo-coder"] : []),
+          ...lines("author-logins"),
+        ]),
+      ];
+      const selectedAccounts = () => [
+        ...new Set(
+          [...document.querySelectorAll("[data-scope]:checked")]
+            .map((input) => input.value)
+            .concat(entryLists.manual),
+        ),
       ];
       const readDraft = () => ({
         values: configFields.map((id) => byId(id).value),
+        scopes: [...document.querySelectorAll("[data-scope]")].map(
+          (input) => input.checked,
+        ),
+        lists: Object.fromEntries(
+          Object.entries(entryLists).map(([kind, values]) => [
+            kind,
+            [...values],
+          ]),
+        ),
         mode: mode(),
         enabled: byId("enabled").checked,
       });
@@ -1178,13 +1496,141 @@ demo-coder/sandbox</textarea>
         configFields.forEach(
           (id, index) => (byId(id).value = savedDraft.values[index]),
         );
+        document
+          .querySelectorAll("[data-scope]")
+          .forEach(
+            (input, index) => (input.checked = savedDraft.scopes[index]),
+          );
+        for (const kind of Object.keys(entryLists)) {
+          entryLists[kind] = [...savedDraft.lists[kind]];
+          byId(`${kind}-input`).value = "";
+          feedback(`${kind}-feedback`, "");
+        }
         document.querySelector(
           `input[name="repository-mode"][value="${savedDraft.mode}"]`,
         ).checked = true;
         byId("enabled").checked = savedDraft.enabled;
         feedback("config-feedback", "");
+        renderConnection();
+        renderEntries();
         preview();
       });
+      function renderConnection() {
+        byId("github-account").hidden = !state.githubConnected;
+        byId("github-unconnected").hidden = state.githubConnected;
+        byId("connect-github").hidden = state.githubConnected;
+        byId("github-demo-toggle").textContent = state.githubConnected
+          ? "演示：切换未连接"
+          : "演示：恢复已连接";
+        byId("organization-demo").value = state.organizationState;
+        byId("organization-demo").disabled = !state.githubConnected;
+        byId("refresh-organizations").disabled = !state.githubConnected;
+        byId("authorize-organizations").hidden =
+          !state.githubConnected || state.organizationState !== "permission";
+        document.querySelectorAll("[data-scope]").forEach((input) => {
+          input.disabled =
+            !state.githubConnected ||
+            (!input.hasAttribute("data-primary-scope") &&
+              state.organizationState !== "ready");
+        });
+        byId("organization-notice").textContent = !state.githubConnected
+          ? "连接 GitHub 后读取组织；下面保留上次勾选，不代表最新成员关系。"
+          : state.organizationState === "permission"
+            ? "缺少组织读取权限或被组织策略限制。保留上次勾选；可按需补充 read:org，组织限制仍需管理员处理。"
+            : state.organizationState === "error"
+              ? "组织列表读取失败，不代表你没有组织。保留上次勾选，请重试。"
+              : "已读取 2 个虚构组织。刷新不会自动勾选新组织。";
+      }
+      function renderEntries() {
+        for (const [kind, entries] of Object.entries(entryLists)) {
+          const list = byId(`${kind}-list`);
+          list.replaceChildren();
+          if (!entries.length) {
+            const empty = document.createElement("li");
+            empty.className = "muted";
+            empty.textContent = "尚未添加";
+            list.append(empty);
+          }
+          for (const value of entries) {
+            const row = document.createElement("li");
+            const info = document.createElement("div");
+            const name = document.createElement("span");
+            name.textContent = value;
+            const detail = document.createElement("small");
+            detail.textContent =
+              kind === "manual"
+                ? "仅扫描公开仓库；不改变作者身份"
+                : sampleRepositories.has(value)
+                  ? "虚构公开仓库样例"
+                  : "待上线核验公开性；离线仅检查格式";
+            if (kind === "includes" && entryLists.excludes.includes(value))
+              detail.textContent += "；已被排除，不会统计";
+            info.append(name, detail);
+            const remove = document.createElement("button");
+            remove.type = "button";
+            remove.textContent = "移除";
+            remove.setAttribute(
+              "aria-label",
+              `移除${entryNames[kind]} ${value}`,
+            );
+            remove.addEventListener("click", () => {
+              entryLists[kind] = entryLists[kind].filter(
+                (entry) => entry !== value,
+              );
+              renderEntries();
+              preview();
+              feedback(
+                `${kind}-feedback`,
+                `已从草稿移除 ${value}，保存后生效。`,
+              );
+              byId(`${kind}-input`).focus();
+            });
+            row.append(info, remove);
+            list.append(row);
+          }
+        }
+        const conflicts = entryLists.includes.filter((value) =>
+          entryLists.excludes.includes(value),
+        );
+        byId("repository-conflicts").hidden = !conflicts.length;
+        byId("repository-conflicts").textContent = conflicts.length
+          ? `排除优先：${conflicts.join("、")} 同时在两份列表中，不会被统计。`
+          : "";
+      }
+      function addEntry(kind) {
+        const input = byId(`${kind}-input`);
+        const value = input.value.trim().toLowerCase();
+        const pattern = kind === "manual" ? loginPattern : repoPattern;
+        let error = "";
+        if (!pattern.test(value))
+          error =
+            kind === "manual"
+              ? "请填写有效的 GitHub 账号或组织名。"
+              : "请填写有效的 owner/name，不要填写网址。";
+        else if (
+          entryLists[kind].includes(value) ||
+          (kind === "manual" && selectedAccounts().includes(value))
+        )
+          error = "该项已经在当前范围中，不会重复添加。";
+        else if (entryLists[kind].length >= 100)
+          error = "该列表最多添加 100 项，实际采集还受平台配额限制。";
+        else if (kind !== "manual" && sampleRepositoryErrors.has(value))
+          error = sampleRepositoryErrors.get(value);
+        if (error) {
+          feedback(`${kind}-feedback`, error, true);
+          input.focus();
+          return;
+        }
+        entryLists[kind].push(value);
+        input.value = "";
+        renderEntries();
+        preview();
+        feedback(
+          `${kind}-feedback`,
+          `已添加 ${value} 到草稿。${kind !== "manual" && !sampleRepositories.has(value) ? "待上线核验公开性。" : ""}保存后生效。`,
+        );
+        input.focus();
+      }
       function feedback(id, message, error = false) {
         byId(id).textContent = message;
         byId(id).classList.toggle("error-text", error);
@@ -1278,12 +1724,12 @@ demo-coder/sandbox</textarea>
         const explicit = mode() === "explicit";
         byId("accounts-field").hidden = explicit;
         byId("include-optional").hidden = explicit;
-        const logins = lines("author-logins");
+        const logins = authorLogins();
         const emails = lines("author-emails");
         byId("preview-author").textContent =
-          `${logins.join("、") || "未填作者账号"}；${emails.length} 个匹配邮箱。账号或邮箱命中即可。`;
+          `${state.githubConnected ? "已连接 demo-coder" : "尚未连接 GitHub"}；${logins.length} 个作者账号、${emails.length} 个匹配邮箱。任意命中即可。`;
         byId("preview-repos").textContent =
-          `${explicit ? "仅指定仓库" : `扫描 ${lines("accounts").length} 个账号或组织`}，纳入 ${lines("includes").length} 个指定仓库，排除 ${lines("excludes").length} 个仓库。`;
+          `${explicit ? "仅指定仓库" : `扫描 ${selectedAccounts().length} 个账号或组织`}，纳入 ${entryLists.includes.length} 个指定仓库，排除 ${entryLists.excludes.length} 个仓库。`;
         byId("preview-enabled").textContent = byId("enabled").checked
           ? "启用平台安排的自动更新"
           : "暂停自动更新，保留已有结果";
@@ -1423,22 +1869,82 @@ demo-coder/sandbox</textarea>
       });
       byId("config-form").addEventListener("input", preview);
       byId("config-form").addEventListener("change", preview);
+      document
+        .querySelectorAll("[data-add-entry]")
+        .forEach((button) =>
+          button.addEventListener("click", () =>
+            addEntry(button.dataset.addEntry),
+          ),
+        );
+      for (const kind of Object.keys(entryLists)) {
+        byId(`${kind}-input`).addEventListener("keydown", (event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            addEntry(kind);
+          }
+        });
+      }
+      byId("github-demo-toggle").addEventListener("click", () => {
+        state.githubConnected = !state.githubConnected;
+        renderConnection();
+        preview();
+        feedback(
+          "github-feedback",
+          "仅切换原型连接状态，不撤销或创建真实 OAuth 授权。",
+        );
+      });
+      byId("connect-github").addEventListener("click", () => {
+        state.githubConnected = true;
+        renderConnection();
+        preview();
+        feedback(
+          "github-feedback",
+          "已模拟连接 demo-coder。没有跳转 GitHub、获取令牌或授予平台资格。",
+        );
+      });
+      byId("organization-demo").addEventListener("change", (event) => {
+        state.organizationState = event.target.value;
+        renderConnection();
+      });
+      const refreshOrganizations = () => {
+        state.organizationState = "ready";
+        renderConnection();
+        byId("organization-notice").textContent =
+          "已模拟完成组织授权／读取。原有勾选保留，不自动选择其他组织；没有调用 GitHub。";
+      };
+      byId("refresh-organizations").addEventListener(
+        "click",
+        refreshOrganizations,
+      );
+      byId("authorize-organizations").addEventListener(
+        "click",
+        refreshOrganizations,
+      );
       byId("config-form").addEventListener("submit", (event) => {
         event.preventDefault();
         if (!member()) return;
-        const logins = lines("author-logins"),
+        const logins = authorLogins(),
           emails = lines("author-emails"),
-          accounts = lines("accounts"),
-          includes = lines("includes"),
-          excludes = lines("excludes");
-        const loginPattern = /^[a-z\d](?:[a-z\d-]{0,38})$/i;
-        const repoPattern = /^[a-z\d][a-z\d-]{0,38}\/[a-z\d_.-]{1,100}$/i;
+          accounts = selectedAccounts(),
+          includes = entryLists.includes,
+          excludes = entryLists.excludes;
         const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         let error = "";
         let field = "author-logins";
-        if (!logins.length && !emails.length)
-          error = "请至少填写一个 GitHub 作者账号或匹配邮箱。";
-        else if (logins.some((value) => !loginPattern.test(value)))
+        const pending = (
+          mode() === "explicit"
+            ? ["includes", "excludes"]
+            : Object.keys(entryLists)
+        ).find((kind) => byId(`${kind}-input`).value.trim());
+        if (!state.githubConnected) {
+          error =
+            "请先连接 GitHub 主账号；手动填写历史身份不能替代 OAuth 连接。";
+          field = "connect-github";
+        } else if (pending) {
+          error =
+            "还有尚未添加的内容，请点击对应的添加按钮，或清空输入后再保存。";
+          field = `${pending}-input`;
+        } else if (logins.some((value) => !loginPattern.test(value)))
           error = "GitHub 作者账号格式不正确，请一行填写一个账号。";
         else if (
           emails.some(
@@ -1453,16 +1959,16 @@ demo-coder/sandbox</textarea>
             accounts.some((value) => !loginPattern.test(value)))
         ) {
           error = "请填写有效的扫描账号或组织。";
-          field = "accounts";
+          field = "manual-input";
         } else if (
           (mode() === "explicit" && !includes.length) ||
           includes.some((value) => !repoPattern.test(value))
         ) {
           error = "请填写有效的指定仓库，格式为 owner/name。";
-          field = "includes";
+          field = "includes-input";
         } else if (excludes.some((value) => !repoPattern.test(value))) {
           error = "排除仓库格式应为 owner/name。";
-          field = "excludes";
+          field = "excludes-input";
         } else if (
           [logins, emails, accounts, includes, excludes].some(
             (values) => values.length > 100,
@@ -1593,6 +2099,8 @@ demo-coder/sandbox</textarea>
         bar.style.height = `${height}%`;
         byId("bars").append(bar);
       });
+      renderConnection();
+      renderEntries();
       preview();
       renderDashboard();
       showView("dashboard", false);

@@ -1,10 +1,12 @@
 import {
   activityTotals,
   activityWindow,
+  activityAnchors,
   combineDaily,
   type ActivitySnapshot,
   type DailyActivity,
   type RepositoryActivity,
+  type RollingActivity,
   collectionPhases,
   type CollectionPhase,
   type CollectionPerformance,
@@ -674,7 +676,7 @@ export class CollectionStore {
         JSON.stringify(emails),
         repo.history_id,
         repo.repository_id,
-        run.since_at,
+        new Date(Date.parse(run.since_at) - 86_400_000).toISOString(),
         run.until_at,
       ),
       this.statement(
@@ -686,10 +688,11 @@ export class CollectionStore {
         `INSERT INTO daily_activity
          SELECT r.run_id,r.repository_id,date(c.committed_at,'+8 hours'),count(*),sum(c.additions),sum(c.deletions)
          FROM run_commits r JOIN commits c ON c.repository_id=r.repository_id AND c.sha=r.sha
-         WHERE r.run_id=? AND r.repository_id=? AND r.author_matched=1
+         WHERE r.run_id=? AND r.repository_id=? AND r.author_matched=1 AND c.committed_at>=?
          GROUP BY date(c.committed_at,'+8 hours')`,
         repo.run_id,
         repo.repository_id,
+        run.since_at,
       ),
       this.statement(
         "INSERT INTO repository_sync_state VALUES (?,?,?,?,?,?) ON CONFLICT(repository_id) DO UPDATE SET default_branch=excluded.default_branch,head_sha=excluded.head_sha,history_id=excluded.history_id,last_successful_run_id=excluded.last_successful_run_id,updated_at=excluded.updated_at",
@@ -791,6 +794,30 @@ export class CollectionStore {
     const yearlyCounts = new Map(
       yearlyRows.map((row) => [row.date, row.commits]),
     );
+    const rollingRows = await this.rows<{
+      at: string;
+      commits: number;
+      additions: number;
+      deletions: number;
+    }>(
+      `WITH matched AS (
+        SELECT c.sha,c.committed_at,c.additions,c.deletions
+        FROM run_commits r JOIN commits c ON c.repository_id=r.repository_id AND c.sha=r.sha
+        WHERE r.run_id=? AND r.author_matched=1
+      )
+      SELECT a.value AS at,count(c.sha) AS commits,
+        COALESCE(sum(c.additions),0) AS additions,COALESCE(sum(c.deletions),0) AS deletions
+      FROM json_each(?) a LEFT JOIN matched c
+        ON c.committed_at>strftime('%Y-%m-%dT%H:%M:%fZ',a.value,'-24 hours')
+        AND c.committed_at<=a.value
+      GROUP BY a.value ORDER BY a.value`,
+      runId,
+      JSON.stringify(activityAnchors(window)),
+    );
+    const rolling: RollingActivity[] = rollingRows.map((row) => ({
+      at: row.at,
+      ...activityTotals([row]),
+    }));
     return {
       version: 1,
       accounts: config.accounts,
@@ -804,6 +831,7 @@ export class CollectionStore {
       timezone: "Asia/Shanghai",
       days: 30,
       daily,
+      rolling,
       repositories,
       totals: activityTotals(daily),
       yearly: yearlyWindow.dates.map((date) => ({

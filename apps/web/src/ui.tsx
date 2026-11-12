@@ -3,6 +3,7 @@ import {
   type ActivitySnapshot,
   type ActivityTotals,
   type DailyActivity,
+  type RollingActivity,
 } from "@shazhou-work/workforce-contracts";
 import { useState, type ReactNode } from "react";
 import { YearlyHeatmap } from "./yearly-heatmap.js";
@@ -221,6 +222,8 @@ function ActivityDashboard({
       <section className="activity-panel" aria-label="每日提交与代码变化">
         <ActivityChart
           daily={snapshot.daily}
+          rolling={snapshot.rolling}
+          since={snapshot.since}
           selectedDate={selectedDate}
           onSelectDate={(date) =>
             setSelectedDate(selectedDate === date ? null : date)
@@ -246,7 +249,10 @@ function ActivityDashboard({
                 作为联合作者不影响计入；仅由机器人作为主作者且不匹配的提交不计入。
               </>
             ) : null}
-            柱形表示每日提交次数（左轴），折线表示每日新增行 + 删除行（右轴），
+            柱形表示每日提交次数（左轴），折线表示过去 24 小时新增行 +
+            删除行（右轴），按北京时间每 2 小时采样，仅在 00:00 显示节点标记。
+            每个窗口不含起点、包含锚点；相邻窗口重叠，不能相加作为总量。
+            折线仅显示采集截止前已到达的锚点，不补未来数据。
             两轴独立缩放，不能直接比较高度。 平均行变化 =（新增行 + 删除行）÷
             提交数；无提交时为 0。 保留
             fork；合并提交及继承历史也按同一作者口径计入。
@@ -279,6 +285,35 @@ function ActivityDashboard({
               </tbody>
             </table>
           </div>
+          {snapshot.rolling ? (
+            <div className="table-scroll">
+              <table>
+                <caption>
+                  过去 24 小时滚动统计（北京时间，每 2 小时采样）
+                </caption>
+                <thead>
+                  <tr>
+                    <th>锚点</th>
+                    <th>提交数</th>
+                    <th>新增行</th>
+                    <th>删除行</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {snapshot.rolling.map((point) => (
+                    <tr key={point.at}>
+                      <th scope="row">
+                        {timestamp.format(new Date(point.at))}
+                      </th>
+                      <td>{number.format(point.commits)}</td>
+                      <td>{number.format(point.additions)}</td>
+                      <td>{number.format(point.deletions)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
         </details>
       </section>
 
@@ -414,23 +449,31 @@ function ActivityDashboard({
 
 function ActivityChart({
   daily,
+  rolling,
+  since,
   selectedDate,
   onSelectDate,
 }: {
   readonly daily: readonly DailyActivity[];
+  readonly rolling: readonly RollingActivity[] | undefined;
+  readonly since: string;
   readonly selectedDate: string | null;
   readonly onSelectDate: (date: string) => void;
 }) {
   const maxCommits = Math.max(0, ...daily.map((day) => day.commits));
   const maxLines = Math.max(
     0,
-    ...daily.map((day) => day.additions + day.deletions),
+    ...(rolling ?? []).map((point) => point.additions + point.deletions),
   );
-  const linePoints = daily
-    .map(
-      (day, index) =>
-        `${((index + 0.5) / daily.length) * 1000},${100 - ((day.additions + day.deletions) / (maxLines || 1)) * 90}`,
-    )
+  const start = Date.parse(since);
+  const duration = daily.length * 86_400_000;
+  const points = (rolling ?? []).map((point) => ({
+    ...point,
+    x: duration ? (Date.parse(point.at) - start) / duration : 0,
+    y: 1 - ((point.additions + point.deletions) / (maxLines || 1)) * 0.9,
+  }));
+  const linePoints = points
+    .map((point) => `${point.x * 1000},${point.y * 100}`)
     .join(" ");
 
   return (
@@ -438,11 +481,16 @@ function ActivityChart({
       <div className="chart-caption">
         <span className="chart-key commits-key">提交次数 · 左轴</span>
         <span className="chart-key lines-key">
-          变化行数（新增 + 删除） · 右轴
+          过去 24 小时变化行数 · 每 2 小时采样 · 仅标记 00:00 · 右轴
         </span>
         <span className="chart-key weekdays-key">周一至周五</span>
         <span className="chart-key weekends-key">周末（周六、周日）</span>
       </div>
+      {rolling === undefined ? (
+        <p className="stale-notice" role="status">
+          当前快照尚无滚动统计，下一次完整采集后显示折线；每日提交与明细不受影响。
+        </p>
+      ) : null}
       <div className="chart-composite">
         <div className="chart-axis commits-axis" aria-hidden="true">
           <span title={`${maxCommits} 次提交`}>
@@ -453,7 +501,7 @@ function ActivityChart({
         <div
           className="chart"
           role="group"
-          aria-label="30 天每日提交次数与代码变化行数，点击日期查看详情"
+          aria-label="30 天每日提交次数与过去 24 小时变化行数（每 2 小时采样，仅标记北京时间 00:00），点击日期查看每日详情"
         >
           <svg
             className="chart-line"
@@ -466,6 +514,9 @@ function ActivityChart({
           {daily.map((day, index) => {
             const lines = day.additions + day.deletions;
             const date = new Date(`${day.date}T00:00:00Z`);
+            const midnight = new Date(
+              `${day.date}T00:00:00+08:00`,
+            ).toISOString();
             const isWeekend = date.getUTCDay() === 0 || date.getUTCDay() === 6;
             const label = `${day.date}：${day.commits} commits，${number.format(lines)} 行变化（新增 ${number.format(day.additions)}，删除 ${number.format(day.deletions)}），平均 ${number.format(day.averageLines)} 行/次；${weekday.format(date)}${isWeekend ? "（周末）" : ""}`;
             return (
@@ -477,18 +528,29 @@ function ActivityChart({
                 aria-pressed={selectedDate === day.date}
                 onClick={() => onSelectDate(day.date)}
               >
+                {points
+                  .filter((point) => point.at === midnight)
+                  .map((point) => {
+                    const label = `${timestamp.format(new Date(point.at))}（北京时间）：过去 24 小时 ${point.commits} commits，${number.format(point.additions + point.deletions)} 行变化（新增 ${number.format(point.additions)}，删除 ${number.format(point.deletions)}）；不含窗口起点，包含锚点`;
+                    return (
+                      <span
+                        key={point.at}
+                        className="line-marker"
+                        role="img"
+                        aria-label={label}
+                        title={label}
+                        style={{
+                          left: `${(point.x * daily.length - index) * 100}%`,
+                          top: `calc(var(--plot-height) * ${point.y})`,
+                        }}
+                      />
+                    );
+                  })}
                 <span className="bar-track">
                   <span
                     className={`bar${day.commits === 0 ? " zero" : ""}`}
                     style={{
                       height: `${(day.commits / (maxCommits || 1)) * 90}%`,
-                    }}
-                  />
-                  <span
-                    className="line-marker"
-                    aria-hidden="true"
-                    style={{
-                      bottom: `${(lines / (maxLines || 1)) * 90}%`,
                     }}
                   />
                 </span>

@@ -6,6 +6,7 @@ import {
   beijingDate,
   combineDaily,
   dailyActivity,
+  rollingActivity,
 } from "../src/activity.js";
 
 describe("Beijing activity statistics", () => {
@@ -103,5 +104,58 @@ describe("Beijing activity statistics", () => {
     expect(year.since).toBe("2023-03-02T16:00:00.000Z");
     expect(year.dates).toContain("2024-02-29");
     expect(activityWindow(new Date(year.until)).dates).toHaveLength(30);
+  });
+
+  it("samples trailing 24 hours at Beijing two-hour anchors with exact boundaries and warmup history", () => {
+    const period = {
+      since: "2025-12-31T16:00:00.000Z",
+      until: "2026-01-01T05:30:00.000Z",
+    };
+    const commit = (sha: string, committedAt: string, additions: number) => ({
+      sha,
+      committedAt,
+      additions,
+      deletions: 1,
+    });
+    const first = commit("first", period.since, 10);
+    const points = rollingActivity(
+      [
+        commit("cutoff", "2026-01-01T05:30:00.000Z", 500),
+        commit("future", "2026-01-01T10:00:00.000Z", 1000),
+        commit("noon", "2026-01-01T04:00:00.000Z", 30),
+        first,
+        commit("excluded-start", "2025-12-30T16:00:00.000Z", 999),
+        commit("warmup", "2025-12-31T15:00:00.000Z", 40),
+        commit("six", "2025-12-31T22:00:00.000Z", 20),
+        first,
+      ],
+      period,
+    );
+    expect(
+      points.map((point) => [
+        point.at,
+        point.commits,
+        point.additions,
+        point.deletions,
+        point.averageLines,
+      ]),
+    ).toEqual([
+      [period.since, 2, 50, 2, 26],
+      ["2025-12-31T18:00:00.000Z", 2, 50, 2, 26],
+      ["2025-12-31T20:00:00.000Z", 2, 50, 2, 26],
+      ["2025-12-31T22:00:00.000Z", 3, 70, 3, 73 / 3],
+      ["2026-01-01T00:00:00.000Z", 3, 70, 3, 73 / 3],
+      ["2026-01-01T02:00:00.000Z", 3, 70, 3, 73 / 3],
+      ["2026-01-01T04:00:00.000Z", 4, 100, 4, 26],
+    ]);
+    expect(
+      rollingActivity([], period).every((point) => point.commits === 0),
+    ).toBe(true);
+    expect(
+      rollingActivity([first], {
+        since: "2025-12-31T17:00:00.000Z",
+        until: "2026-01-01T16:00:00.000Z",
+      }).at(-1),
+    ).toMatchObject({ commits: 0, additions: 0, deletions: 0 });
   });
 });

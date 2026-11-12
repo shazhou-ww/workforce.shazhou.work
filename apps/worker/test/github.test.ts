@@ -74,6 +74,11 @@ function response(body: unknown, status = 200) {
 
 describe("public GitHub collector", () => {
   it("requests a full year for offline collection but preserves the 30-day dashboard window", async () => {
+    const warmup = {
+      ...ownCommit,
+      oid: "warmup",
+      committedDate: "2026-10-06T15:00:00Z",
+    };
     const request = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(response([repository]))
@@ -82,6 +87,8 @@ describe("public GitHub collector", () => {
           graph({
             nodes: [
               ownCommit,
+              warmup,
+              warmup,
               {
                 ...ownCommit,
                 oid: "older",
@@ -108,11 +115,21 @@ describe("public GitHub collector", () => {
     expect(
       result.yearly?.find((day) => day.date === "2026-03-02")?.commits,
     ).toBe(1);
-    expect(result.yearly?.reduce((sum, day) => sum + day.commits, 0)).toBe(2);
+    expect(result.yearly?.reduce((sum, day) => sum + day.commits, 0)).toBe(3);
     const body = request.mock.calls[1]?.[1]?.body;
     if (typeof body !== "string") throw new Error("Missing GraphQL body");
     expect(JSON.parse(body)).toMatchObject({
       variables: { since: "2025-11-05T16:00:00.000Z" },
+    });
+    expect(result.rolling?.[0]).toMatchObject({
+      at: result.since,
+      commits: 1,
+      additions: 20,
+      deletions: 10,
+    });
+    expect(result.rolling?.at(-1)).toMatchObject({
+      at: "2026-11-05T08:00:00.000Z",
+      commits: 1,
     });
   });
   it("counts only the primary account or confirmed author emails, keeping forks and filtering every page", async () => {

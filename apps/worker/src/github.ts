@@ -3,6 +3,7 @@ import {
   activityWindow,
   combineDaily,
   dailyActivity,
+  rollingActivity,
   type ActivitySnapshot,
   type CommitActivity,
   type RepositoryActivity,
@@ -146,6 +147,7 @@ export async function collectActivity({
   }
 
   const repositories: RepositoryActivity[] = [];
+  const rolling = rollingActivity([], window);
   for (const repository of discovered.values()) {
     const commits: CommitActivity[] = [];
     const variables = {
@@ -221,6 +223,13 @@ export async function collectActivity({
         (yearlyCounts.get(day.date) ?? 0) + day.commits,
       );
     }
+    for (const [index, point] of rollingActivity(commits, window).entries()) {
+      const combined = rolling[index]!;
+      rolling[index] = {
+        at: point.at,
+        ...activityTotals([combined, point]),
+      };
+    }
     const head = metadata.defaultBranchRef?.target;
     repositories.push({
       name: metadata.nameWithOwner,
@@ -261,6 +270,7 @@ export async function collectActivity({
     days: 30,
     totals: activityTotals(daily),
     daily,
+    rolling,
     repositories,
     yearly: yearlyWindow.dates.map((date) => ({
       date,

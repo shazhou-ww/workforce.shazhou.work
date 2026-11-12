@@ -2,6 +2,7 @@ import {
   activityWindow,
   dailyActivity,
   activityTotals,
+  rollingActivity,
   type ActivitySnapshot,
   type RepositoryActivity,
 } from "@shazhou-work/workforce-contracts";
@@ -44,6 +45,10 @@ const snapshot: ActivitySnapshot = {
   timezone: "Asia/Shanghai",
   days: 30,
   daily,
+  rolling: rollingActivity(
+    [{ sha: "a", committedAt: window.until, additions: 20, deletions: 10 }],
+    window,
+  ),
   totals: activityTotals(daily),
   repositories: [repository],
 };
@@ -726,15 +731,19 @@ describe("read-only activity dashboard", () => {
     expect(days[0]?.getAttribute("aria-label")).not.toContain("周末");
   });
 
-  it("aligns daily total-change line points with bars and scales the axes independently", () => {
-    const chartDaily = dailyActivity(
-      [
-        { sha: "one", committedAt: window.since, additions: 60, deletions: 40 },
-        { sha: "two", committedAt: window.since, additions: 0, deletions: 0 },
-        { sha: "three", committedAt: window.until, additions: 5, deletions: 5 },
-      ],
-      window,
-    );
+  it("uses every two-hour sample for the line but marks only Beijing midnight, preserving daily bars and independent axes", () => {
+    const commits = [
+      { sha: "one", committedAt: window.since, additions: 60, deletions: 40 },
+      { sha: "two", committedAt: window.since, additions: 0, deletions: 0 },
+      {
+        sha: "three",
+        committedAt: "2026-11-05T04:00:00.000Z",
+        additions: 5,
+        deletions: 5,
+      },
+    ];
+    const chartDaily = dailyActivity(commits, window);
+    const rolling = rollingActivity(commits, window);
     const container = document.createElement("div");
     container.innerHTML = renderToStaticMarkup(
       <Dashboard
@@ -743,6 +752,7 @@ describe("read-only activity dashboard", () => {
           snapshot: {
             ...snapshot,
             daily: chartDaily,
+            rolling,
             totals: activityTotals(chartDaily),
           },
         }}
@@ -754,18 +764,34 @@ describe("read-only activity dashboard", () => {
       ?.getAttribute("points")
       ?.split(" ")
       .map((point) => point.split(",").map(Number));
-    expect(points).toHaveLength(30);
-    expect(points?.[0]?.[0]).toBeCloseTo(1000 / 60);
-    expect(points?.[0]?.[1]).toBe(10);
-    expect(points?.[1]?.[1]).toBe(100);
-    expect(points?.[29]?.[0]).toBeCloseTo((29.5 / 30) * 1000);
-    expect(points?.[29]?.[1]).toBe(91);
+    expect(points).toHaveLength(357);
+    expect(points?.[0]?.[0]).toBe(0);
+    expect(points?.[0]?.[1]).toBeCloseTo(10);
+    expect(points?.[1]?.[0]).toBeCloseTo(1000 / 360);
+    expect(points?.[1]?.[1]).toBeCloseTo(10);
+    expect(points?.[12]?.[1]).toBe(100);
+    expect(points?.at(-1)?.[0]).toBeCloseTo(((29 + 16 / 24) / 30) * 1000);
+    expect(points?.at(-1)?.[1]).toBeCloseTo(91);
     const bars = container.querySelectorAll<HTMLElement>(".bar");
     expect(bars[0]?.style.height).toBe("90%");
     expect(bars[29]?.style.height).toBe("45%");
     const markers = container.querySelectorAll<HTMLElement>(".line-marker");
-    expect(markers[0]?.style.bottom).toBe("90%");
-    expect(markers[29]?.style.bottom).toBe("9%");
+    expect(markers).toHaveLength(30);
+    expect(markers[0]?.style.left).toBe("0%");
+    expect([...markers].every((marker) => marker.style.left === "0%")).toBe(
+      true,
+    );
+    expect(
+      [...markers].every((marker) =>
+        marker.title.includes("00:00（北京时间）"),
+      ),
+    ).toBe(true);
+    expect(markers[0]?.style.top).toContain("var(--plot-height)");
+    expect(markers[0]?.getAttribute("title")).toContain(
+      "过去 24 小时 2 commits，100 行变化",
+    );
+    expect(markers[0]?.getAttribute("aria-label")).toBe(markers[0]?.title);
+    expect(container.textContent).toContain("过去 24 小时滚动统计");
     expect(container.querySelector(".commits-axis > span")?.textContent).toBe(
       "2",
     );
@@ -778,6 +804,18 @@ describe("read-only activity dashboard", () => {
     expect(container.querySelector(".chart-day")?.getAttribute("title")).toBe(
       container.querySelector(".chart-day")?.getAttribute("aria-label"),
     );
+  });
+
+  it("explicitly marks legacy snapshots as awaiting rolling data instead of interpolating daily totals", () => {
+    const container = document.createElement("div");
+    const legacy = { ...snapshot };
+    delete legacy.rolling;
+    container.innerHTML = renderToStaticMarkup(
+      <Dashboard state={{ kind: "ready", snapshot: legacy }} now={now} />,
+    );
+    expect(container.textContent).toContain("当前快照尚无滚动统计");
+    expect(container.querySelectorAll(".line-marker")).toHaveLength(0);
+    expect(container.querySelectorAll(".chart-day")).toHaveLength(30);
   });
 
   it("renders empty repositories and stale data honestly", () => {
@@ -844,6 +882,7 @@ describe("read-only activity dashboard", () => {
           snapshot: {
             ...snapshot,
             daily: emptyDaily,
+            rolling: rollingActivity([], window),
             totals: activityTotals(emptyDaily),
             repositories: [],
           },

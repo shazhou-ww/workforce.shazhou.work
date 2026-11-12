@@ -10,7 +10,10 @@ import type { Bindings } from "../src/env.js";
 import type { GitHubRepository, RawCommit } from "../src/collection-github.js";
 import { TestD1 } from "./d1.js";
 import { GitHubError } from "../src/github-client.js";
-import { activityWindow } from "@shazhou-work/workforce-contracts";
+import {
+  activityWindow,
+  rollingActivity,
+} from "@shazhou-work/workforce-contracts";
 
 const until = "2026-11-09T04:00:00.000Z";
 const key = "email-key-with-at-least-thirty-two-characters";
@@ -234,6 +237,72 @@ function params(
 }
 
 describe("D1 collection", () => {
+  it("publishes exact rolling windows with pre-period history without changing daily totals or author scope", async () => {
+    const { env, store, revisionId } = await setup();
+    const run = { ...params(revisionId), until: "2026-11-09T05:30:00.000Z" };
+    const period = activityWindow(new Date(run.until));
+    const start = Date.parse(period.since);
+    const at = (hours: number) =>
+      new Date(start + hours * 3_600_000).toISOString();
+    const own = [
+      commit(1, at(-24)),
+      commit(2, at(-23)),
+      commit(3, at(0)),
+      commit(4, at(6)),
+      commit(5, period.until),
+      commit(6, "2026-11-09T10:00:00.000Z"),
+      {
+        ...commit(7, at(-1)),
+        author: { email: "AUTHOR@example.test", user: null },
+      },
+    ];
+    const other = {
+      ...commit(8, at(-2)),
+      author: { email: "other@example.test", user: { login: "other" } },
+    };
+    await runCollection(
+      env,
+      run,
+      steps(),
+      github({
+        commits: [...own, other, own[2]!],
+        repos: [
+          repository,
+          { ...repository, id: 3, full_name: "owner/second" },
+        ],
+      }),
+    );
+    const result = await store.snapshot(run.runId, hashEmail);
+    const expected = rollingActivity(
+      own.map((value) => ({
+        sha: value.oid,
+        committedAt: value.committedDate,
+        additions: value.additions,
+        deletions: value.deletions,
+      })),
+      period,
+    ).map((point) => ({
+      ...point,
+      commits: point.commits * 2,
+      additions: point.additions * 2,
+      deletions: point.deletions * 2,
+    }));
+    expect(result.rolling).toEqual(expected);
+    expect(result.rolling?.[0]).toMatchObject({
+      commits: 6,
+      additions: 60,
+      deletions: 30,
+    });
+    expect(result.totals).toMatchObject({
+      commits: 6,
+      additions: 60,
+      deletions: 30,
+    });
+    expect(result.daily[0]?.commits).toBe(4);
+    expect(result.daily.at(-1)?.commits).toBe(2);
+    expect(JSON.stringify(result)).not.toContain("@example.test");
+  });
+
   it("reduces 69 unchanged repositories from 69 metadata requests to 8 with identical snapshots", async () => {
     const { env, store, revisionId } = await setup({
       ...baseConfig,

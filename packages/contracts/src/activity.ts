@@ -21,6 +21,10 @@ export interface DailyCommitCount {
   readonly commits: number;
 }
 
+export interface RollingActivity extends ActivityTotals {
+  readonly at: string;
+}
+
 export interface RepositoryActivity extends ActivityTotals {
   readonly name: string;
   readonly url: string;
@@ -52,10 +56,54 @@ export interface ActivitySnapshot {
   readonly daily: readonly DailyActivity[];
   readonly repositories: readonly RepositoryActivity[];
   readonly yearly?: readonly DailyCommitCount[];
+  readonly rolling?: readonly RollingActivity[];
 }
 
 const dayMs = 86_400_000;
 const beijingOffset = 8 * 60 * 60 * 1000;
+const anchorMs = 2 * 60 * 60 * 1000;
+
+export function activityAnchors(
+  window: Pick<ActivitySnapshot, "since" | "until">,
+): string[] {
+  const start = Date.parse(window.since);
+  const end = Date.parse(window.until);
+  const first =
+    Math.ceil((start + beijingOffset) / anchorMs) * anchorMs - beijingOffset;
+  return Array.from(
+    { length: Math.max(0, Math.floor((end - first) / anchorMs) + 1) },
+    (_, index) => new Date(first + index * anchorMs).toISOString(),
+  );
+}
+
+export function rollingActivity(
+  commits: readonly CommitActivity[],
+  window: Pick<ActivitySnapshot, "since" | "until">,
+): RollingActivity[] {
+  const unique = new Map(commits.map((commit) => [commit.sha, commit]));
+  const sorted = [...unique.values()]
+    .map((commit) => ({ ...commit, time: Date.parse(commit.committedAt) }))
+    .sort((left, right) => left.time - right.time);
+  let left = 0;
+  let right = 0;
+  const totals = { commits: 0, additions: 0, deletions: 0 };
+  return activityAnchors(window).map((at) => {
+    const end = Date.parse(at);
+    while (right < sorted.length && sorted[right]!.time <= end) {
+      const commit = sorted[right++]!;
+      totals.commits += 1;
+      totals.additions += commit.additions;
+      totals.deletions += commit.deletions;
+    }
+    while (left < right && sorted[left]!.time <= end - dayMs) {
+      const commit = sorted[left++]!;
+      totals.commits -= 1;
+      totals.additions -= commit.additions;
+      totals.deletions -= commit.deletions;
+    }
+    return { at, ...activityTotals([totals]) };
+  });
+}
 
 export function beijingDate(instant: string | number): string {
   return new Date(new Date(instant).getTime() + beijingOffset)

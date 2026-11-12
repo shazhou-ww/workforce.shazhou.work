@@ -922,17 +922,15 @@ h2 {
 }
 .line-marker {
   position: absolute;
-  left: 50%;
-  width: 5px;
-  height: 5px;
+  width: 3px;
+  height: 3px;
   border-radius: 50%;
   background: var(--color-primary-strong);
-  transform: translate(-50%, 50%);
-  pointer-events: none;
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
   z-index: 2;
 }
-.chart-day:hover .line-marker,
-.chart-day:focus-visible .line-marker,
+.line-marker:hover,
 .chart-day.selected .line-marker {
   width: 9px;
   height: 9px;

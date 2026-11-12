@@ -21,7 +21,7 @@ catalog:
   eslint: ^10.14.0
   globals: ^17.14.0
   github-ci-verify: 0.1.0
-  hono: ^4.13.13
+  hono: ^4.13.17
   prettier: ^3.9.10
   publint: ^0.3.25
   react: ^19.3.1

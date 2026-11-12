@@ -31,7 +31,7 @@ catalog:
   turbo: ^2.11.10
   typescript: ^6.0.3
   typescript-eslint: ^8.72.1
-  vite: ^8.3.5
+  vite: ^8.3.7
   vitest: ^5.0.4
   wrangler: ^4.151.1
   happy-dom: ^21.0.4

@@ -41,7 +41,7 @@ export function Dashboard({
   collectionControl,
   refreshError,
   title = "我的统计",
-  description = "查看代码活动、每日趋势与项目进展。",
+  description,
   pageActions,
   notice,
   children,
@@ -58,12 +58,7 @@ export function Dashboard({
 }) {
   return (
     <div className="shell">
-      <header className="masthead">
-        <WorkforceBrand />
-        <nav className="header-actions" aria-label="工作空间">
-          {collectionControl}
-        </nav>
-      </header>
+      <SiteHeader>{collectionControl}</SiteHeader>
       {state.kind === "ready" && refreshError ? (
         <p className="stale-notice" role="alert">
           刷新统计失败，已保留上次完整结果：{refreshError}
@@ -73,11 +68,9 @@ export function Dashboard({
         <header className="page-heading" aria-labelledby="page-title">
           <div className="page-heading-copy">
             <h1 id="page-title">{title}</h1>
-            <p>{description}</p>
+            {description ? <p>{description}</p> : null}
             {state.kind === "ready" ? (
-              <p className="accounts">
-                统计范围：{state.snapshot.accounts.join(" / ")}
-              </p>
+              <p className="accounts">{state.snapshot.accounts.join(" / ")}</p>
             ) : null}
           </div>
           <div className="page-heading-tools">
@@ -122,6 +115,21 @@ export function Dashboard({
         <span>代码变化量不等于工作质量或个人贡献</span>
       </footer>
     </div>
+  );
+}
+
+export function SiteHeader({ children }: { readonly children?: ReactNode }) {
+  return (
+    <>
+      <header className="masthead">
+        <div className="masthead-inner">
+          <WorkforceBrand />
+          <nav className="header-actions" aria-label="工作空间">
+            {children}
+          </nav>
+        </div>
+      </header>
+    </>
   );
 }
 

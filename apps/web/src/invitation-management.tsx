@@ -22,9 +22,11 @@ const statuses = {
 export function InvitationManagement({
   userId,
   onClose,
+  title = "用户管理",
 }: {
   readonly userId: string | null;
   readonly onClose: () => void;
+  readonly title?: string;
 }) {
   const [records, setRecords] = useState<readonly InvitationRecord[] | null>(
     null,
@@ -108,8 +110,9 @@ export function InvitationManagement({
     }
   };
   return (
-    <Modal title="用户管理" onClose={onClose}>
+    <Modal title={title} onClose={onClose}>
       <div className="modal-scroll invitation-content">
+        {title === "系统管理" ? <h3>用户管理</h3> : null}
         <p className="field-note">
           仅管理邀请资格。不提供其他用户的配置、统计邮箱或个人看板。
         </p>

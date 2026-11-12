@@ -18,12 +18,10 @@ export function PersonalDashboard({
   controls,
   onConfigure,
   revision,
-  sharingControl,
 }: {
   readonly controls: ReactNode;
   readonly onConfigure: () => void;
   readonly revision: number;
-  readonly sharingControl?: ReactNode;
 }) {
   const [state, setState] = useState<DashboardState>({ kind: "loading" });
   const [activity, setActivity] = useState<PersonalActivityResponse | null>(
@@ -258,7 +256,6 @@ export function PersonalDashboard({
       collectionControl={controls}
       pageActions={
         <>
-          {sharingControl}
           <div className="refresh-control">
             <button
               className="collect-button"

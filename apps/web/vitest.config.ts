@@ -15,6 +15,7 @@ export default defineConfig({
         "src/personal-config.tsx",
         "src/personal-dashboard.tsx",
         "src/profile.tsx",
+        "src/account-menu.tsx",
         "src/invitation-management.tsx",
         "src/modal.tsx",
         "src/scope-list.tsx",

@@ -16,7 +16,8 @@
     "@fontsource-variable/newsreader": "catalog:",
     "@shazhou-work/workforce-contracts": "workspace:*",
     "react": "catalog:",
-    "react-dom": "catalog:"
+    "react-dom": "catalog:",
+    "react-engraved-background": "catalog:"
   },
   "devDependencies": {
     "@types/react": "catalog:",

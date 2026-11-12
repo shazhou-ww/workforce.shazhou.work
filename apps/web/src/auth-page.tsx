@@ -2,7 +2,7 @@ import type { BootstrapResponse } from "@shazhou-work/workforce-contracts";
 import { useEffect, useState } from "react";
 
 import { fetchJson } from "./api.js";
-import { WorkforceBrand } from "./ui.js";
+import { SiteHeader } from "./ui.js";
 
 type AuthMode = "signin" | "signout";
 type AuthState =
@@ -58,10 +58,9 @@ export function AuthPage({ mode }: { readonly mode: AuthMode }) {
 
   return (
     <div className="auth-page">
-      <header className="auth-masthead">
-        <WorkforceBrand />
+      <SiteHeader>
         <span className="auth-header-note">邀请制个人空间</span>
-      </header>
+      </SiteHeader>
       <main className="auth-main">
         <div className="auth-container">
           <a className="auth-back" href="/">

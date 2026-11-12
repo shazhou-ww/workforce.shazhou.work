@@ -7,6 +7,7 @@ import { PersonalConfiguration } from "./personal-config.js";
 import { InvitationManagement } from "./invitation-management.js";
 import { PersonalDashboard } from "./personal-dashboard.js";
 import { ProfileSharing, PublicProfile } from "./profile.js";
+import { AccountMenu } from "./account-menu.js";
 
 export function App() {
   const profile = /^\/u\/([^/]+)\/?$/.exec(location.pathname);
@@ -64,27 +65,12 @@ function PersonalApp() {
       ) : !access ? (
         <span className="muted">正在检查个人资格…</span>
       ) : access.signedIn ? (
-        <>
-          {access.status === "active" ? (
-            <button className="nav-button" onClick={() => setPanel("config")}>
-              个人配置
-            </button>
-          ) : null}
-          {access.isAdmin ? (
-            <button
-              className="nav-button"
-              onClick={() => setPanel("invitations")}
-            >
-              用户管理
-            </button>
-          ) : null}
-          <a
-            className="collection-auth-link"
-            href="/api/auth/signout?callbackUrl=%2F"
-          >
-            退出登录
-          </a>
-        </>
+        <AccountMenu
+          access={access}
+          onSettings={() => setPanel("config")}
+          onSharing={() => setPanel("sharing")}
+          onAdministration={() => setPanel("invitations")}
+        />
       ) : (
         <a
           className="collection-auth-link"
@@ -103,14 +89,6 @@ function PersonalApp() {
           controls={controls}
           revision={revision}
           onConfigure={() => setPanel("config")}
-          sharingControl={
-            <button
-              className="secondary-button"
-              onClick={() => setPanel("sharing")}
-            >
-              主页分享
-            </button>
-          }
         />
       ) : (
         <Dashboard state={{ kind: "loading" }} collectionControl={controls}>
@@ -174,6 +152,7 @@ function PersonalApp() {
       ) : null}
       {panel === "invitations" && access?.isAdmin ? (
         <InvitationManagement
+          title="系统管理"
           userId={access.userId}
           onClose={() => setPanel(null)}
         />

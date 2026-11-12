@@ -1100,13 +1100,24 @@ describe("personal access and invitation management", () => {
     expect(request.mock.calls.some(([url]) => url === "/api/activity")).toBe(
       false,
     );
-    await click(container, "个人配置");
+    const account = container.querySelector("details.account-menu");
+    expect(account).not.toBeNull();
+    expect(container.querySelector(".page-actions")?.textContent).not.toContain(
+      "分享",
+    );
+    act(() =>
+      container.querySelector<HTMLElement>(".account-trigger")?.click(),
+    );
+    await click(container, "设置");
     await click(container, "保存配置");
     expect(container.querySelector("dialog")).toBeNull();
     expect(container.textContent).toContain("当前页面已保留");
     expect(container.querySelector("h1")?.textContent).toBe("我的统计");
     await click(container, "关闭");
-    await click(container, "用户管理");
+    act(() =>
+      container.querySelector<HTMLElement>(".account-trigger")?.click(),
+    );
+    await click(container, "系统管理用户与邀请");
     expect(container.querySelector("dialog")?.textContent).toContain(
       "邀请邮箱",
     );
@@ -1114,7 +1125,10 @@ describe("personal access and invitation management", () => {
     expect(container.textContent).toContain("还没有个人统计范围");
     await click(container, "去配置");
     await click(container, "关闭");
-    await click(container, "个人配置");
+    act(() =>
+      container.querySelector<HTMLElement>(".account-trigger")?.click(),
+    );
+    await click(container, "设置");
     await click(container, "取消");
   });
 

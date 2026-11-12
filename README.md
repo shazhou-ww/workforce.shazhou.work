@@ -109,17 +109,22 @@ rounds. Persistent failures remain visible with a manual read-retry action;
 authentication failures stop recovery and clear private results instead of
 retaining access.
 
-The dashboard uses one compact page heading for the title, scope, refresh/share
-actions and collection timestamp. The global header contains only branding,
-configuration, administrator management when authorized, and sign-out. One
-shared data surface places 30-day statistics beside the yearly heatmap, with the
-composite chart below; the project list is an unboxed section. Owner and visitor
-views use the same layout, but visitors have no management or refresh actions.
-Additions and deletions share one statistic. "涉及项目" counts repositories with
-at least one commit in the selected day or 30-day period, including
-zero-line-change commits, independently of repository search and the zero-change
-toggle. Narrow screens stack the summaries and allow the heatmap to scroll
-horizontally.
+The dashboard uses a fixed 64px frosted header with branding and an account
+disclosure. The account menu groups identity/status, settings, profile sharing,
+administrator-only system management (users and invitations), and sign-out.
+Escape closes it and restores focus; clicking outside also dismisses it. The
+same header and low-contrast `react-engraved-background` paper texture (code,
+branches and activity motifs) are used on authentication pages. The compact page
+heading contains only the title, account scope, refresh action and collection
+timestamp. One shared data surface places 30-day statistics beside the yearly
+heatmap, with the composite chart below; the project list has its own white
+table surface to keep the engraved background from interfering with data. Owner
+and visitor views use the same layout, but visitors have no management or
+refresh actions. Additions and deletions share one statistic. "涉及项目" counts
+repositories with at least one commit in the selected day or 30-day period,
+including zero-line-change commits, independently of repository search and the
+zero-change toggle. Narrow screens stack the summaries and allow the heatmap to
+scroll horizontally.
 
 The heatmap has no period selector, totals, or date-selection linkage. Each cell
 shows its Beijing date, weekday and exact commit count on hover, focus or tap.
@@ -219,15 +224,14 @@ administrator never publishes their results. It remains separate from the opt-in
 `/u/<github-login>` profiles and has no frontend entry. This release preserves
 that existing production API.
 
-The top-level personal configuration button opens a modal panel, not a sidebar
-or a separate configuration route. Its primary GitHub account comes from OAuth
-and is read-only. Users can select their public repositories and joined
-organizations, add other public account scopes, and add or remove individual
-included/excluded repositories. Exclusions win. Historical author accounts and
-emails are matching filters, not proof of identity or invitation credentials.
-Only public repositories and the existing default-branch statistics are
-supported; GitHub credentials never belong in the browser or a dashboard
-snapshot.
+The account menu's settings action opens a modal panel, not a sidebar or a
+separate configuration route. Its primary GitHub account comes from OAuth and is
+read-only. Users can select their public repositories and joined organizations,
+add other public account scopes, and add or remove individual included/excluded
+repositories. Exclusions win. Historical author accounts and emails are matching
+filters, not proof of identity or invitation credentials. Only public
+repositories and the existing default-branch statistics are supported; GitHub
+credentials never belong in the browser or a dashboard snapshot.
 
 Administrators are bootstrapped by stable numeric GitHub IDs in
 `COLLECTION_ADMIN_GITHUB_IDS`. They manage invitations using verified login

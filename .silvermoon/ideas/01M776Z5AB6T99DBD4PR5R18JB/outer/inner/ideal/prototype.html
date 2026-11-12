@@ -224,19 +224,15 @@
         background: #f8eaed;
       }
       .shell {
-        max-width: 1440px;
+        max-width: 1200px;
         margin: auto;
-        display: grid;
-        grid-template-columns: 208px minmax(0, 1fr);
         min-height: calc(100vh - 150px);
       }
-      aside.navigation {
-        padding: 30px 18px;
-        border-right: 1px solid var(--line);
-      }
       nav {
-        display: grid;
-        gap: 7px;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px;
       }
       nav button {
         justify-content: start;
@@ -248,12 +244,6 @@
       nav button[aria-current="page"] {
         color: var(--blue);
         background: #e5ecff;
-      }
-      .nav-foot {
-        margin: 32px 12px;
-        font-size: 12px;
-        line-height: 1.9;
-        color: var(--muted);
       }
       main {
         min-width: 0;
@@ -533,6 +523,46 @@
       dialog::backdrop {
         background: #18243b66;
       }
+      body.config-open {
+        overflow: hidden;
+      }
+      .config-dialog {
+        width: min(1100px, calc(100% - 48px));
+        max-height: calc(100svh - 48px);
+        padding: 0;
+        overflow: hidden;
+      }
+      .config-dialog[open] {
+        display: flex;
+        flex-direction: column;
+      }
+      .config-header {
+        display: flex;
+        align-items: start;
+        justify-content: space-between;
+        gap: 20px;
+        padding: 24px;
+        border-bottom: 1px solid var(--line);
+      }
+      .config-header h2 {
+        font-size: 25px;
+      }
+      .config-header p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 14px;
+      }
+      .config-dialog .columns {
+        min-height: 0;
+        padding: 24px;
+        overflow-y: auto;
+      }
+      .config-dialog .form-footer {
+        position: sticky;
+        bottom: -24px;
+        background: white;
+        border-top: 1px solid var(--line);
+      }
       dialog p {
         overflow-wrap: anywhere;
       }
@@ -574,25 +604,22 @@
           align-items: start;
           flex-wrap: wrap;
         }
-        .shell {
-          display: block;
-        }
-        aside.navigation {
-          border-right: 0;
-          border-bottom: 1px solid var(--line);
-          padding: 12px;
-        }
-        nav {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 4px;
-        }
         nav button {
           padding: 8px 11px;
           font-size: 13px;
         }
-        .nav-foot {
-          display: none;
+        .config-dialog {
+          width: calc(100% - 16px);
+          max-height: calc(100svh - 16px);
+        }
+        .config-header {
+          padding: 18px;
+        }
+        .config-dialog .columns {
+          padding: 12px;
+        }
+        .config-dialog .form-footer {
+          bottom: -12px;
         }
         main {
           padding: 26px 16px;
@@ -657,35 +684,24 @@
         <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span
         >Workforce
       </div>
+      <nav aria-label="主导航">
+        <button type="button" data-view="home">平台主页</button>
+        <button type="button" data-view="dashboard" data-member>
+          我的统计
+        </button>
+        <button type="button" data-open-config data-member id="open-config">
+          个人配置
+        </button>
+        <button type="button" data-view="admin" id="admin-nav" hidden>
+          用户管理
+        </button>
+      </nav>
       <div class="identity">
         <span id="identity">demo-coder</span
         ><span class="badge" id="role">仅本人可见</span>
       </div>
     </header>
     <div class="shell">
-      <aside class="navigation">
-        <nav aria-label="主导航">
-          <button type="button" data-view="home">平台主页</button>
-          <button type="button" data-view="dashboard" data-member>
-            我的统计
-          </button>
-          <button
-            type="button"
-            data-view="config"
-            data-member
-            aria-current="page"
-          >
-            个人配置
-          </button>
-          <button type="button" data-view="admin" id="admin-nav" hidden>
-            用户管理
-          </button>
-        </nav>
-        <div class="nav-foot">
-          只检查自己的代码活动。<br />不排名，不比较。<br /><br />北京时间<br />公开仓库
-          / 默认分支
-        </div>
-      </aside>
       <main>
         <noscript
           ><p class="notice warning">
@@ -723,13 +739,23 @@
           </ul>
         </section>
 
-        <section id="config">
-          <div class="page-heading">
+        <dialog
+          id="config"
+          class="config-dialog"
+          aria-labelledby="config-title"
+          aria-describedby="config-description"
+        >
+          <div class="config-header">
             <div>
-              <h1 tabindex="-1">个人配置</h1>
-              <p>告诉 Workforce 哪些提交属于你，以及去哪些公开仓库里找。</p>
+              <h2 id="config-title" tabindex="-1" autofocus>个人配置</h2>
+              <p id="config-description">
+                告诉 Workforce
+                哪些提交属于你，以及去哪些公开仓库里找。仅本人可见。
+              </p>
             </div>
-            <span class="badge">仅本人可见</span>
+            <button type="button" data-close-config aria-label="关闭个人配置">
+              关闭
+            </button>
           </div>
           <div class="columns">
             <form id="config-form" novalidate>
@@ -845,8 +871,16 @@ demo-coder/sandbox</textarea>
                   </p>
                 </section>
                 <div class="form-footer">
-                  <span class="help">邮箱和配置不会公开。</span
-                  ><button type="submit" class="primary">保存个人配置</button>
+                  <span class="help">邮箱和配置不会公开。</span>
+                  <div class="actions" style="margin: 0">
+                    <button
+                      type="button"
+                      data-close-config
+                      aria-label="取消配置修改"
+                    >
+                      取消</button
+                    ><button type="submit" class="primary">保存个人配置</button>
+                  </div>
                 </div>
               </div>
               <p
@@ -877,7 +911,7 @@ demo-coder/sandbox</textarea>
               </p>
             </aside>
           </div>
-        </section>
+        </dialog>
 
         <section id="dashboard" hidden>
           <div class="page-heading">
@@ -902,7 +936,7 @@ demo-coder/sandbox</textarea>
             <p id="empty-description">
               保存作者身份和仓库范围后，才能开始首次采集。没有结果时不展示虚构零值。
             </p>
-            <button type="button" data-view="config">去配置</button>
+            <button type="button" data-open-config>去配置</button>
           </div>
           <div id="dashboard-results">
             <div class="metrics">
@@ -1058,6 +1092,12 @@ demo-coder/sandbox</textarea>
             ></p>
           </div>
         </section>
+        <p
+          id="page-feedback"
+          class="status"
+          role="status"
+          aria-live="polite"
+        ></p>
         <footer>
           离线设计样稿，不是已上线功能。配额数值仅为演示，所有操作在刷新后重置。<br />代码活动不代表生产力或代码质量。
         </footer>
@@ -1080,7 +1120,7 @@ demo-coder/sandbox</textarea>
       const state = {
         scene: "member",
         dataScene: "existing",
-        view: "config",
+        view: "dashboard",
         hasConfig: true,
         hasResult: true,
         changed: false,
@@ -1114,23 +1154,55 @@ demo-coder/sandbox</textarea>
       const mode = () =>
         document.querySelector('input[name="repository-mode"]:checked').value;
       const member = () => ["member", "admin"].includes(state.scene);
+      const configFields = [
+        "author-logins",
+        "author-emails",
+        "accounts",
+        "includes",
+        "excludes",
+      ];
+      const readDraft = () => ({
+        values: configFields.map((id) => byId(id).value),
+        mode: mode(),
+        enabled: byId("enabled").checked,
+      });
+      let savedDraft = readDraft();
+      function openConfig() {
+        if (!member()) return;
+        feedback("config-feedback", "");
+        byId("config").showModal();
+        document.body.classList.add("config-open");
+      }
+      byId("config").addEventListener("close", () => {
+        document.body.classList.remove("config-open");
+        configFields.forEach(
+          (id, index) => (byId(id).value = savedDraft.values[index]),
+        );
+        document.querySelector(
+          `input[name="repository-mode"][value="${savedDraft.mode}"]`,
+        ).checked = true;
+        byId("enabled").checked = savedDraft.enabled;
+        feedback("config-feedback", "");
+        preview();
+      });
       function feedback(id, message, error = false) {
         byId(id).textContent = message;
         byId(id).classList.toggle("error-text", error);
       }
       function showView(requested, focus = true) {
+        if (byId("config").open) byId("config").close();
         const view =
           requested === "admin" && state.scene !== "admin"
             ? member()
               ? "dashboard"
               : "restricted"
-            : ["dashboard", "config"].includes(requested) && !member()
+            : requested === "dashboard" && !member()
               ? state.scene === "public"
                 ? "home"
                 : "restricted"
               : requested;
         state.view = view;
-        for (const id of ["home", "config", "dashboard", "admin", "restricted"])
+        for (const id of ["home", "dashboard", "admin", "restricted"])
           byId(id).hidden = id !== view;
         document.querySelectorAll("nav [data-view]").forEach((button) => {
           if (button.dataset.view === view)
@@ -1198,7 +1270,7 @@ demo-coder/sandbox</textarea>
             : state.scene === "admin"
               ? "admin"
               : member()
-                ? "config"
+                ? "dashboard"
                 : "restricted",
         );
       }
@@ -1325,6 +1397,14 @@ demo-coder/sandbox</textarea>
         .forEach((button) =>
           button.addEventListener("click", () => showView(button.dataset.view)),
         );
+      document
+        .querySelectorAll("[data-open-config]")
+        .forEach((button) => button.addEventListener("click", openConfig));
+      document
+        .querySelectorAll("[data-close-config]")
+        .forEach((button) =>
+          button.addEventListener("click", () => byId("config").close()),
+        );
       byId("scene").addEventListener("change", (event) => {
         state.scene = event.target.value;
         state.collecting = false;
@@ -1398,9 +1478,12 @@ demo-coder/sandbox</textarea>
         state.changed = true;
         state.revision += 1;
         state.automatic = byId("enabled").checked;
+        savedDraft = readDraft();
+        byId("config").close();
+        renderDashboard();
         feedback(
-          "config-feedback",
-          `已在原型内保存配置 v${state.revision}。${state.hasResult ? "旧结果保留，" : ""}${state.collecting ? "在途任务仍使用启动时的配置，下次任务使用新配置。" : "下次采集使用新配置。"}未启动真实采集；可前往“我的统计”体验。`,
+          "page-feedback",
+          `已在原型内保存配置 v${state.revision}。${state.hasResult ? "旧结果保留，" : ""}${state.collecting ? "在途任务仍使用启动时的配置，下次任务使用新配置。" : "下次采集使用新配置。"}未启动真实采集。`,
         );
       });
       byId("invite-form").addEventListener("submit", (event) => {
@@ -1512,7 +1595,7 @@ demo-coder/sandbox</textarea>
       });
       preview();
       renderDashboard();
-      showView("config", false);
+      showView("dashboard", false);
     </script>
   </body>
 </html>

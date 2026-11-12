@@ -1317,6 +1317,89 @@ describe("personal dashboard", () => {
       ),
     ).toHaveLength(4);
   });
+
+  it("recovers a published personal result after a read outage without reloading or submitting another collection", async () => {
+    vi.useFakeTimers();
+    let unavailable = true;
+    let published = false;
+    const request = vi.fn<typeof fetch>().mockImplementation((input) => {
+      if (String(input).includes("/run-1")) {
+        published = !unavailable;
+        return Promise.resolve(
+          unavailable
+            ? Response.json({ error: "任务状态读取失败" }, { status: 503 })
+            : Response.json({
+                runId: "run-1",
+                status: "published",
+                until: snapshot.until,
+              }),
+        );
+      }
+      return Promise.resolve(
+        Response.json(
+          input === "/api/personal/activity"
+            ? { snapshot, currentRevisionId: "revision-1", stale: false }
+            : {
+                activeRunId: published ? null : "run-1",
+                latestRun: null,
+                nextRefreshAt: null,
+              },
+        ),
+      );
+    });
+    vi.stubGlobal("fetch", request);
+    const { container } = await render(
+      <PersonalDashboard controls={null} revision={0} onConfigure={vi.fn()} />,
+    );
+    await act(async () => vi.advanceTimersByTimeAsync(3000));
+    expect(container.textContent).toContain("任务状态读取失败");
+    expect(container.textContent).toContain("private-scope");
+    unavailable = false;
+    await act(async () => vi.advanceTimersByTimeAsync(15_000));
+    expect(container.textContent).toContain("采集完成，个人统计已更新");
+    expect(container.textContent).not.toContain("任务状态读取失败");
+    expect(request.mock.calls.some(([, init]) => init?.method === "POST")).toBe(
+      false,
+    );
+  });
+
+  it("bounds personal polling backoff and cancels pending recovery when the dashboard unmounts", async () => {
+    vi.useFakeTimers();
+    const request = vi.fn<typeof fetch>().mockImplementation((input) =>
+      Promise.resolve(
+        String(input).includes("/run-1")
+          ? Response.json({ error: "持续读取失败" }, { status: 503 })
+          : Response.json(
+              input === "/api/personal/activity"
+                ? { snapshot: null, currentRevisionId: "revision-1" }
+                : {
+                    activeRunId: "run-1",
+                    latestRun: null,
+                    nextRefreshAt: null,
+                  },
+            ),
+      ),
+    );
+    vi.stubGlobal("fetch", request);
+    const { container, root } = await render(
+      <PersonalDashboard controls={null} revision={0} onConfigure={vi.fn()} />,
+    );
+    await act(async () => vi.advanceTimersByTimeAsync(120_000));
+    const reads = () =>
+      request.mock.calls.filter(([url]) => String(url).includes("/run-1"))
+        .length;
+    expect(reads()).toBe(12);
+    expect(container.textContent).toContain("持续读取失败");
+    await act(async () => vi.advanceTimersByTimeAsync(30_000));
+    expect(reads()).toBe(12);
+    await click(container, "重试读取");
+    const beforeUnmount = reads();
+    act(() => root.unmount());
+    roots.splice(roots.indexOf(root), 1);
+    await act(async () => vi.advanceTimersByTimeAsync(120_000));
+    expect(reads()).toBe(beforeUnmount);
+    expect(vi.getTimerCount()).toBe(0);
+  });
 });
 
 it.each(["poll", "trigger"] as const)(

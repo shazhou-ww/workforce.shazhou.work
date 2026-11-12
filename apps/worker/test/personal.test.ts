@@ -1078,20 +1078,24 @@ describe("personal configuration, discovery and isolation", () => {
     const { env } = fixture();
     const id = await user(env);
     const cookie = await session(id);
-    const repos = Array.from({ length: 51 }, (_, index) => ({
+    const repos = Array.from({ length: 202 }, (_, index) => ({
       ...publicRepository,
       id: 1000 + index,
       full_name: `primary/r${index}`,
     }));
     vi.stubGlobal(
       "fetch",
-      vi
-        .fn()
-        .mockImplementation((input: string) =>
-          Promise.resolve(
-            Response.json(input.includes("/repos?") ? repos : repos[0]),
+      vi.fn().mockImplementation((input: string) => {
+        const url = new URL(input);
+        const page = Number(url.searchParams.get("page") ?? 1);
+        return Promise.resolve(
+          Response.json(
+            url.pathname.endsWith("/repos")
+              ? repos.slice((page - 1) * 100, page * 100)
+              : repos[input.endsWith("/second-renamed") ? 1 : 0],
           ),
-        ),
+        );
+      }),
     );
     const large = {
       ...config,
@@ -1099,16 +1103,70 @@ describe("personal configuration, discovery and isolation", () => {
       includeRepositories: [],
     };
     expect(
-      (await call(env, "/personal/config", cookie, "PUT", large)).status,
-    ).toBe(422);
-    expect(
       (
         await call(env, "/personal/config", cookie, "PUT", {
           ...large,
           excludeRepositories: ["old/renamed"],
         })
       ).status,
+    ).toBe(422);
+    expect(
+      (
+        await call(env, "/personal/config", cookie, "PUT", {
+          ...large,
+          excludeRepositories: ["old/renamed", "old/second-renamed"],
+        })
+      ).status,
     ).toBe(200);
+    repos.splice(200);
+    expect(
+      (await call(env, "/personal/config", cookie, "PUT", large)).status,
+    ).toBe(200);
+  });
+
+  it("allows 200 explicit repository entries but rejects 201 without raising account or author limits", () => {
+    for (const field of [
+      "includeRepositories",
+      "excludeRepositories",
+    ] as const) {
+      const entries = Array.from(
+        { length: 200 },
+        (_, index) => `primary/repository-${index}`,
+      );
+      expect(parseConfig({ ...config, [field]: entries })[field]).toHaveLength(
+        200,
+      );
+      expect(() =>
+        parseConfig({
+          ...config,
+          [field]: [...entries, "primary/over-budget"],
+        }),
+      ).toThrow(`${field} must be an array of at most 200 values.`);
+    }
+    for (const field of ["accounts", "authorLogins", "authorEmails"] as const) {
+      const entries = Array.from({ length: 100 }, (_, index) =>
+        field === "authorEmails"
+          ? `historical-${index}@example.invalid`
+          : `author-${index}`,
+      );
+      expect(parseConfig({ ...config, [field]: entries })[field]).toHaveLength(
+        100,
+      );
+      expect(() =>
+        parseConfig({ ...config, [field]: [...entries, entries[0]!] }),
+      ).toThrow(`${field} must be an array of at most 100 values.`);
+    }
+  });
+
+  it("reports the shared 200-repository personal quota without changing history and refresh limits", async () => {
+    const { env } = fixture();
+    const id = await user(env);
+    const response = await call(env, "/platform/access", await session(id));
+    expect((await response.json<PlatformAccessResponse>()).limits).toEqual({
+      repositories: 200,
+      historyCommits: 50_000,
+      refreshCooldownSeconds: 900,
+    });
   });
 
   it("paginates app-visible organizations and returns the public OAuth application access settings", async () => {
@@ -1547,13 +1605,17 @@ describe("scoped collection and migration safety", () => {
     const store = new CollectionStore(env.DB!, id);
     const revision = await store.saveConfig(config);
     await store.begin("run", revision, new Date().toISOString(), "key");
-    const repositories = Array.from({ length: 51 }, (_, index) => ({
+    const repositories = Array.from({ length: 201 }, (_, index) => ({
       ...publicRepository,
       id: 1000 + index,
     }));
     await expect(
-      store.discover("run", publicRepository.owner, repositories),
-    ).rejects.toThrow("50 repository");
+      store.discover("run", publicRepository.owner, repositories.slice(0, 200)),
+    ).resolves.toBeUndefined();
+    expect((await store.repositories("run")).length).toBe(200);
+    await expect(
+      store.discover("run", publicRepository.owner, repositories.slice(200)),
+    ).rejects.toThrow("200 repository");
     const repo = (await store.repositories("run"))[0]!;
     await store.plan(
       repo,
@@ -1590,7 +1652,7 @@ describe("scoped collection and migration safety", () => {
     await expect(
       legacy.discover("legacy-run", publicRepository.owner, repositories),
     ).resolves.toBeUndefined();
-    expect((await legacy.repositories("legacy-run")).length).toBe(51);
+    expect((await legacy.repositories("legacy-run")).length).toBe(201);
   });
 
   it("stops a queued/in-flight collector at live checkpoints without publishing after suspension", async () => {

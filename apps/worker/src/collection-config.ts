@@ -1,3 +1,5 @@
+import { personalRepositoryLimit } from "@shazhou-work/workforce-contracts";
+
 export interface CollectionConfig {
   readonly enabled: boolean;
   readonly accounts: readonly string[];
@@ -33,11 +35,11 @@ export function parseConfig(value: unknown): CollectionConfig {
   if (Object.keys(object).some((key) => !fields.includes(key))) {
     throw new CollectionInputError("Unknown collection configuration field.");
   }
-  function list(field: string, pattern: RegExp): string[] {
+  function list(field: string, pattern: RegExp, limit = 100): string[] {
     const input = object[field];
-    if (!Array.isArray(input) || input.length > 100) {
+    if (!Array.isArray(input) || input.length > limit) {
       throw new CollectionInputError(
-        `${field} must be an array of at most 100 values.`,
+        `${field} must be an array of at most ${limit} values.`,
       );
     }
     const result = new Set<string>();
@@ -69,8 +71,16 @@ export function parseConfig(value: unknown): CollectionConfig {
     accounts: list("accounts", loginPattern),
     authorLogins: list("authorLogins", loginPattern),
     authorEmails: list("authorEmails", emailPattern),
-    includeRepositories: list("includeRepositories", repositoryPattern),
-    excludeRepositories: list("excludeRepositories", repositoryPattern),
+    includeRepositories: list(
+      "includeRepositories",
+      repositoryPattern,
+      personalRepositoryLimit,
+    ),
+    excludeRepositories: list(
+      "excludeRepositories",
+      repositoryPattern,
+      personalRepositoryLimit,
+    ),
   };
   if (config.authorLogins.length + config.authorEmails.length === 0) {
     throw new CollectionInputError(

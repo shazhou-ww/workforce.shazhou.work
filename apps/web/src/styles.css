@@ -1178,7 +1178,7 @@ h2 {
   pointer-events: none;
   z-index: 1;
 }
-.chart-line polyline {
+.chart-line path {
   fill: none;
   stroke: var(--color-primary-strong);
   stroke-width: 2;

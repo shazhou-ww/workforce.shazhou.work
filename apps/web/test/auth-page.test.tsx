@@ -71,9 +71,9 @@ describe("custom authentication pages", () => {
       "登录仅验证身份，不代表取得邀请资格",
     );
     expect(container.textContent).toContain("个人服务需已验证邮箱匹配有效邀请");
-    expect(container.textContent).toContain("公开看板无需登录");
-    expect(container.textContent).toContain("管理员仍可手动更新公开采集");
-    expect(container.textContent).toContain("仅本人可见的统计");
+    expect(container.textContent).toContain("主动公开的个人主页");
+    expect(container.textContent).not.toContain("管理员仍可手动更新公开采集");
+    expect(container.textContent).toContain("统计默认仅本人可见");
     await act(async () => {
       forms[0]?.dispatchEvent(
         new Event("submit", { bubbles: true, cancelable: true }),
@@ -98,8 +98,8 @@ describe("custom authentication pages", () => {
     expect(cancel?.textContent).toContain("取消");
     expect(request).toHaveBeenCalledTimes(1);
     expect(container.querySelector("h1")?.textContent).toBe("准备退出登录？");
-    expect(container.textContent).toContain("个人统计和管理员操作需重新登录");
-    expect(container.textContent).toContain("个人统计仍仅本人可见");
+    expect(container.textContent).toContain("配置和刷新操作需重新登录");
+    expect(container.textContent).toContain("不会改变你的主页公开设置");
   });
 
   it("does not render a form before the CSRF token is ready", async () => {

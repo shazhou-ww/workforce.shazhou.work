@@ -224,6 +224,136 @@ afterEach(() => {
 });
 
 describe("personal access and invitations", () => {
+  it("publishes only an opted-in owner's snapshot and revokes anonymous access immediately", async () => {
+    const { env, store } = fixture();
+    const id = await user(env);
+    const cookie = await session(id);
+    const other = await user(env, "202", "other@example.invalid");
+    const otherCookie = await session(other);
+    await store
+      .statement(
+        "UPDATE personal_github SET login='other' WHERE user_id=?",
+        other,
+      )
+      .run();
+    await store
+      .statement(
+        "UPDATE personal_state SET snapshot_json=? WHERE id=?",
+        JSON.stringify({
+          version: 1,
+          accounts: ["primary"],
+          generatedAt: "2026-11-12T08:00:00Z",
+          since: "2026-10-14T16:00:00Z",
+          until: "2026-11-12T08:00:00Z",
+          timezone: "Asia/Shanghai",
+          days: 30,
+          totals: { commits: 1, additions: 2, deletions: 1, averageLines: 3 },
+          daily: [],
+          repositories: [],
+          credential: "must-not-be-published",
+          authorEmails: ["secret@example.invalid"],
+        }),
+        id,
+      )
+      .run();
+    expect(await (await call(env, "/personal/profile", cookie)).json()).toEqual(
+      { publicPath: null },
+    );
+    expect((await call(env, "/profiles/primary")).status).toBe(404);
+    expect(
+      (await call(env, "/personal/profile", "", "PUT", { enabled: true }))
+        .status,
+    ).toBe(401);
+    expect(
+      (
+        await call(
+          env,
+          "/personal/profile",
+          cookie,
+          "PUT",
+          { enabled: true },
+          "https://evil.invalid",
+        )
+      ).status,
+    ).toBe(403);
+    expect(
+      (await call(env, "/personal/profile", cookie, "PUT", { enabled: "yes" }))
+        .status,
+    ).toBe(422);
+    const published = await call(env, "/personal/profile", cookie, "PUT", {
+      enabled: true,
+    });
+    expect(await published.json()).toEqual({ publicPath: "/u/primary" });
+    expect(published.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(
+      await (await call(env, "/personal/profile", otherCookie)).json(),
+    ).toEqual({ publicPath: null });
+    const response = await call(env, "/profiles/PRIMARY");
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    const body = await response.json<{
+      login: string;
+      snapshot: ActivitySnapshot;
+    }>();
+    expect(Object.keys(body)).toEqual(["login", "snapshot"]);
+    expect(body.login).toBe("primary");
+    expect(body.snapshot.totals.commits).toBe(1);
+    expect(JSON.stringify(body)).not.toMatch(
+      /secret@|must-not|credential|authorEmails|revisionId|runId/,
+    );
+    expect((await call(env, "/profiles/other")).status).toBe(404);
+    await call(env, "/personal/profile", cookie, "PUT", { enabled: false });
+    const hidden = await call(env, "/profiles/primary");
+    expect(hidden.status).toBe(404);
+    expect(hidden.headers.get("Cache-Control")).toBe("no-store");
+    await call(env, "/personal/profile", cookie, "PUT", { enabled: true });
+    await store
+      .statement("UPDATE personal_users SET status='suspended' WHERE id=?", id)
+      .run();
+    expect((await call(env, "/profiles/primary")).status).toBe(404);
+    expect(
+      (await call(env, "/personal/profile", cookie, "PUT", { enabled: true }))
+        .status,
+    ).toBe(403);
+  });
+
+  it("requires a connected GitHub identity and does not take another user's profile address", async () => {
+    const { env, store } = fixture();
+    const first = await user(env);
+    await call(env, "/personal/profile", await session(first), "PUT", {
+      enabled: true,
+    });
+    const second = await user(env, "202", "second@example.invalid");
+    expect(
+      (
+        await call(env, "/personal/profile", await session(second), "PUT", {
+          enabled: true,
+        })
+      ).status,
+    ).toBe(409);
+    expect(await (await call(env, "/profiles/primary")).json()).toEqual({
+      login: "primary",
+      snapshot: null,
+    });
+    await store
+      .statement("DELETE FROM personal_github WHERE user_id=?", second)
+      .run();
+    expect(
+      (
+        await call(env, "/personal/profile", await session(second), "PUT", {
+          enabled: true,
+        })
+      ).status,
+    ).toBe(409);
+    expect(
+      (
+        await call(env, "/personal/profile", await session(second), "PUT", {
+          enabled: false,
+        })
+      ).status,
+    ).toBe(200);
+  });
+
   it("uses only trusted verified invitations, stable IDs, and never merges email identities", async () => {
     const { env, store } = fixture();
     const invitation = await invite(env, "mixed+tag@example.invalid");

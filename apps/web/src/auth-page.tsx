@@ -60,7 +60,7 @@ export function AuthPage({ mode }: { readonly mode: AuthMode }) {
     <div className="auth-page">
       <header className="auth-masthead">
         <WorkforceBrand />
-        <span className="auth-header-note">公开看板 · 邀请制个人空间</span>
+        <span className="auth-header-note">邀请制个人空间</span>
       </header>
       <main className="auth-main">
         <div className="auth-container">
@@ -76,7 +76,7 @@ export function AuthPage({ mode }: { readonly mode: AuthMode }) {
             >
               <path d="m10 5-7 7 7 7M3 12h18" />
             </svg>
-            返回看板
+            返回首页
           </a>
           <section className="auth-card" aria-labelledby="auth-title">
             <div className="auth-heading">
@@ -122,13 +122,13 @@ export function AuthPage({ mode }: { readonly mode: AuthMode }) {
                     : ""}
                   账号登录 Workforce。
                   <br />
-                  获邀用户可配置个人范围，查看仅本人可见的统计。
+                  获邀用户可配置个人范围，统计默认仅本人可见，也可主动公开主页。
                 </>
               ) : (
                 <>
                   退出后将结束当前登录会话。
                   <br />
-                  公开看板仍可浏览；个人统计和管理员操作需重新登录。
+                  已公开的个人主页仍可浏览；配置和刷新操作需重新登录。
                 </>
               )}
             </p>
@@ -157,7 +157,7 @@ export function AuthPage({ mode }: { readonly mode: AuthMode }) {
               </div>
             ) : signingIn && state.providers.length === 0 ? (
               <p className="auth-error" role="alert">
-                暂未配置登录方式，请联系管理员。公开看板仍可正常浏览。
+                暂未配置登录方式，请联系管理员。已公开的个人主页仍可正常浏览。
               </p>
             ) : (
               <div className="auth-actions" aria-busy={submitting}>
@@ -200,7 +200,7 @@ export function AuthPage({ mode }: { readonly mode: AuthMode }) {
             )}
             {!signingIn ? (
               <a className="auth-button auth-secondary" href="/">
-                取消，返回看板
+                取消，返回首页
               </a>
             ) : null}
             <div className="auth-permission">
@@ -224,7 +224,7 @@ export function AuthPage({ mode }: { readonly mode: AuthMode }) {
                     <br />
                     个人服务需已验证邮箱匹配有效邀请。
                     <br />
-                    公开看板无需登录；管理员仍可手动更新公开采集。
+                    仅主动公开的个人主页可由访客无需登录浏览。
                   </>
                 ) : (
                   "仅退出 Workforce，不会退出你的身份提供方账号。"
@@ -234,11 +234,9 @@ export function AuthPage({ mode }: { readonly mode: AuthMode }) {
           </section>
           <p className="auth-below">
             {signingIn ? (
-              <>
-                只是来看看？ <a href="/">直接浏览公开看板</a>
-              </>
+              <>有他人的主页链接？可直接打开，无需登录。</>
             ) : (
-              "公开看板随时可看，个人统计仍仅本人可见。"
+              "退出登录不会改变你的主页公开设置。"
             )}
           </p>
         </div>

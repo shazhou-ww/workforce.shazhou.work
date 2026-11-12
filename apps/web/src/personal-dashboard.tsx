@@ -18,10 +18,12 @@ export function PersonalDashboard({
   controls,
   onConfigure,
   revision,
+  sharingControl,
 }: {
   readonly controls: ReactNode;
   readonly onConfigure: () => void;
   readonly revision: number;
+  readonly sharingControl?: ReactNode;
 }) {
   const [state, setState] = useState<DashboardState>({ kind: "loading" });
   const [activity, setActivity] = useState<PersonalActivityResponse | null>(
@@ -252,44 +254,42 @@ export function PersonalDashboard({
       : notice;
   return (
     <Dashboard
-      personal
       state={state}
       collectionControl={controls}
+      pageActions={
+        <>
+          {sharingControl}
+          <div className="refresh-control">
+            <button
+              className="collect-button"
+              disabled={
+                starting ||
+                !!activeRunId ||
+                cooling ||
+                !activity?.currentRevisionId ||
+                !collection ||
+                !!error
+              }
+              onClick={() => {
+                void trigger();
+              }}
+            >
+              {starting || activeRunId ? "个人采集中…" : "刷新我的统计"}
+            </button>
+            {cooling ? (
+              <p className="field-note">
+                下次可刷新：
+                {new Date(collection.nextRefreshAt!).toLocaleString("zh-CN", {
+                  timeZone: "Asia/Shanghai",
+                })}
+                （北京时间）
+              </p>
+            ) : null}
+          </div>
+        </>
+      }
       notice={
         <>
-          <section className="personal-toolbar" aria-label="个人统计状态">
-            <div>
-              <h2>我的统计</h2>
-              <p>个人范围、任务和结果与公开主页独立，仅本人可见。</p>
-            </div>
-            <div>
-              <button
-                className="collect-button"
-                disabled={
-                  starting ||
-                  !!activeRunId ||
-                  cooling ||
-                  !activity?.currentRevisionId ||
-                  !collection ||
-                  !!error
-                }
-                onClick={() => {
-                  void trigger();
-                }}
-              >
-                {starting || activeRunId ? "个人采集中…" : "刷新我的统计"}
-              </button>
-              {cooling ? (
-                <p className="field-note">
-                  下次可刷新：
-                  {new Date(collection.nextRefreshAt!).toLocaleString("zh-CN", {
-                    timeZone: "Asia/Shanghai",
-                  })}
-                  （北京时间）
-                </p>
-              ) : null}
-            </div>
-          </section>
           {error ? (
             <p role="alert" className="stale-notice">
               无法读取或更新个人统计：{error}{" "}
@@ -316,11 +316,11 @@ export function PersonalDashboard({
     >
       {activity && !activity.snapshot ? (
         <section className="notice">
-          <h1>
+          <h2>
             {activity.currentRevisionId
               ? "等待第一份完整统计"
               : "还没有个人统计范围"}
-          </h1>
+          </h2>
           <p>
             {activity.currentRevisionId
               ? "配置已保存。可手动刷新，完成前不会显示虚构的零统计。"

@@ -13,6 +13,7 @@ import { App } from "../src/app.js";
 import { InvitationManagement } from "../src/invitation-management.js";
 import { PersonalConfiguration } from "../src/personal-config.js";
 import { PersonalDashboard } from "../src/personal-dashboard.js";
+import { ProfileSharing } from "../src/profile.js";
 import { ScopeList } from "../src/scope-list.js";
 import { ApiError, fetchJson } from "../src/api.js";
 
@@ -221,6 +222,89 @@ function field(container: HTMLElement, name: string) {
   if (!input) throw new Error(`Missing input ${name}`);
   return input;
 }
+
+describe("personal profile sharing", () => {
+  it("keeps profiles private until explicitly published and persists disabling sharing", async () => {
+    let publicPath: string | null = null;
+    const request = vi.fn<typeof fetch>().mockImplementation((_input, init) => {
+      if (init?.method === "PUT") {
+        const body = JSON.parse(String(init.body)) as { enabled: boolean };
+        publicPath = body.enabled ? "/u/octocat" : null;
+      }
+      return Promise.resolve(Response.json({ publicPath }));
+    });
+    vi.stubGlobal("fetch", request);
+    const onClose = vi.fn();
+    const { container } = await render(<ProfileSharing onClose={onClose} />);
+    expect(container.textContent).toContain("主页仅本人可见");
+    expect(request.mock.calls.some(([, init]) => init?.method === "PUT")).toBe(
+      false,
+    );
+    await click(container, "开启公开主页");
+    expect(container.textContent).toContain("主页已公开");
+    expect(
+      container.querySelector<HTMLInputElement>(".share-link input")?.value,
+    ).toContain("/u/octocat");
+    expect(container.querySelector(".share-link a")?.getAttribute("href")).toBe(
+      "/u/octocat",
+    );
+    await click(container, "设为私密");
+    expect(container.querySelector(".share-link")).toBeNull();
+    expect(container.textContent).toContain("原链接不再可访问");
+    await click(container, "完成");
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("shows failed settings reads and saves without pretending the profile is public", async () => {
+    let reads = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockImplementation((_input, init) =>
+        Promise.resolve(
+          init?.method === "PUT"
+            ? Response.json(
+                {
+                  error: "Not connected",
+                  code: "github_connection_required",
+                },
+                { status: 409 },
+              )
+            : ++reads === 1
+              ? Response.json({ error: "Read failed" }, { status: 403 })
+              : Response.json({ publicPath: null }),
+        ),
+      ),
+    );
+    const { container } = await render(
+      <ProfileSharing onClose={() => undefined} />,
+    );
+    expect(container.querySelector("[role=alert]")?.textContent).toContain(
+      "Read failed",
+    );
+    await click(container, "重试读取设置");
+    await click(container, "开启公开主页");
+    expect(container.querySelector("[role=alert]")?.textContent).toContain(
+      "GitHub 尚未连接",
+    );
+    expect(container.textContent).toContain("主页仅本人可见");
+    expect(container.querySelector(".share-link")).toBeNull();
+  });
+
+  it("routes public profile visitors without requesting private APIs", async () => {
+    window.history.replaceState(null, "", "/u/octocat");
+    const request = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(Response.json({ login: "octocat", snapshot }));
+    vi.stubGlobal("fetch", request);
+    const { container } = await render(<App />);
+    expect(container.querySelector("h1")?.textContent).toBe("octocat 的统计");
+    expect(container.textContent).not.toContain("个人配置");
+    expect(container.textContent).not.toContain("刷新我的统计");
+    expect(request.mock.calls.map(([url]) => url)).toEqual([
+      "/api/profiles/octocat",
+    ]);
+  });
+});
 function configBackend(discoveryStatus = 200) {
   return vi.fn<typeof fetch>().mockImplementation((input, init) => {
     if (input === "/api/personal/config")
@@ -974,7 +1058,7 @@ describe("personal access and invitation management", () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
-  it("keeps the existing public page while saving a personal configuration and opens user management only for admins", async () => {
+  it("opens the personal homepage by default, preserves it on save, and shows management only for admins", async () => {
     const request = configBackend();
     const normal = request.getMockImplementation()!;
     request.mockImplementation((input, init) => {
@@ -1010,24 +1094,26 @@ describe("personal access and invitation management", () => {
     });
     vi.stubGlobal("fetch", request);
     const { container } = await render(<App />);
-    expect(container.textContent).toContain("公开仓库 · 只读看板");
+    expect(container.querySelector("h1")?.textContent).toBe("我的统计");
+    expect(container.querySelectorAll("h1")).toHaveLength(1);
+    expect(container.textContent).not.toContain("公开主页");
+    expect(request.mock.calls.some(([url]) => url === "/api/activity")).toBe(
+      false,
+    );
     await click(container, "个人配置");
     await click(container, "保存配置");
     expect(container.querySelector("dialog")).toBeNull();
     expect(container.textContent).toContain("当前页面已保留");
-    expect(container.textContent).toContain("公开仓库 · 只读看板");
+    expect(container.querySelector("h1")?.textContent).toBe("我的统计");
     await click(container, "关闭");
     await click(container, "用户管理");
     expect(container.querySelector("dialog")?.textContent).toContain(
       "邀请邮箱",
     );
     await click(container, "完成");
-    await click(container, "我的统计");
     expect(container.textContent).toContain("还没有个人统计范围");
     await click(container, "去配置");
     await click(container, "关闭");
-    await click(container, "公开主页");
-    expect(container.textContent).toContain("公开仓库 · 只读看板");
     await click(container, "个人配置");
     await click(container, "取消");
   });

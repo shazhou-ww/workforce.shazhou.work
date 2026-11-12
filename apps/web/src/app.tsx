@@ -1,24 +1,25 @@
-import type {
-  ActivitySnapshot,
-  PlatformAccessResponse,
-} from "@shazhou-work/workforce-contracts";
-import { useCallback, useEffect, useState } from "react";
+import type { PlatformAccessResponse } from "@shazhou-work/workforce-contracts";
+import { useEffect, useState } from "react";
 
-import { Dashboard, type DashboardState } from "./ui.js";
-import { CollectionControl } from "./collection-control.js";
+import { Dashboard } from "./ui.js";
 import { fetchJson } from "./api.js";
 import { PersonalConfiguration } from "./personal-config.js";
 import { InvitationManagement } from "./invitation-management.js";
 import { PersonalDashboard } from "./personal-dashboard.js";
+import { ProfileSharing, PublicProfile } from "./profile.js";
 
 export function App() {
+  const profile = /^\/u\/([^/]+)\/?$/.exec(location.pathname);
+  return profile ? <PublicProfile slug={profile[1]!} /> : <PersonalApp />;
+}
+
+function PersonalApp() {
   const [access, setAccess] = useState<PlatformAccessResponse | null>(null);
   const [accessError, setAccessError] = useState<string | null>(null);
   const [accessAttempt, setAccessAttempt] = useState(0);
-  const [personal, setPersonal] = useState(() =>
-    new URLSearchParams(location.search).has("personal"),
-  );
-  const [panel, setPanel] = useState<"config" | "invitations" | null>(() =>
+  const [panel, setPanel] = useState<
+    "config" | "invitations" | "sharing" | null
+  >(() =>
     new URLSearchParams(location.search).get("personal") === "configure"
       ? "config"
       : null,
@@ -64,65 +65,57 @@ export function App() {
         <span className="muted">正在检查个人资格…</span>
       ) : access.signedIn ? (
         <>
-          <button
-            className="text-button"
-            onClick={() => setPersonal((value) => !value)}
-          >
-            {personal ? "公开主页" : "我的统计"}
-          </button>
           {access.status === "active" ? (
-            <button
-              className="secondary-button"
-              onClick={() => setPanel("config")}
-            >
+            <button className="nav-button" onClick={() => setPanel("config")}>
               个人配置
             </button>
           ) : null}
           {access.isAdmin ? (
             <button
-              className="secondary-button"
+              className="nav-button"
               onClick={() => setPanel("invitations")}
             >
               用户管理
             </button>
           ) : null}
-          {personal ? (
-            <a
-              className="collection-auth-link"
-              href="/api/auth/signout?callbackUrl=%2F"
-            >
-              退出登录
-            </a>
-          ) : null}
+          <a
+            className="collection-auth-link"
+            href="/api/auth/signout?callbackUrl=%2F"
+          >
+            退出登录
+          </a>
         </>
       ) : (
         <a
           className="collection-auth-link"
-          href="/api/auth/signin?callbackUrl=%2F%3Fpersonal%3D1"
+          href="/api/auth/signin?callbackUrl=%2F"
         >
           登录个人空间
         </a>
       )}
     </>
   );
-  const restricted = personal && (!access || access.status !== "active");
   return (
     <>
-      {personal && access?.status === "active" ? (
+      {access?.status === "active" ? (
         <PersonalDashboard
           key={`personal:${access.userId}`}
           controls={controls}
           revision={revision}
           onConfigure={() => setPanel("config")}
+          sharingControl={
+            <button
+              className="secondary-button"
+              onClick={() => setPanel("sharing")}
+            >
+              主页分享
+            </button>
+          }
         />
-      ) : restricted ? (
-        <Dashboard
-          state={{ kind: "loading" }}
-          personal
-          collectionControl={controls}
-        >
+      ) : (
+        <Dashboard state={{ kind: "loading" }} collectionControl={controls}>
           <section className="notice" role={accessError ? "alert" : "status"}>
-            <h1>
+            <h2>
               {access?.status === "suspended"
                 ? "个人服务已停用"
                 : access?.status === "verification_required"
@@ -132,7 +125,7 @@ export function App() {
                     : access?.status === "signed_out"
                       ? "请先登录个人空间"
                       : "正在检查个人资格"}
-            </h1>
+            </h2>
             <p>
               {access?.status === "suspended"
                 ? "已有登录会话也不能继续访问个人配置、统计与任务。请联系管理员恢复资格。"
@@ -140,18 +133,20 @@ export function App() {
                   ? "当前登录未提供可信的已验证邮箱，无法领取邀请。请确认提供商的邮箱已验证后重新登录；统计匹配邮箱不能用于领取邀请。"
                   : access?.status === "uninvited"
                     ? "登录不自动授予使用资格。请联系管理员邀请你的已验证邮箱，不会自动关联不同账号。"
-                    : (accessError ?? "个人范围与公开看板相互独立。")}
+                    : (accessError ??
+                      "登录后查看和配置自己的代码活动统计。个人主页默认私密，可主动开启公开分享。")}
             </p>
             {access?.status === "signed_out" ||
             access?.status === "verification_required" ? (
-              <a href="/api/auth/signin?callbackUrl=%2F%3Fpersonal%3D1">
-                重新登录
+              <a
+                className="collect-button"
+                href="/api/auth/signin?callbackUrl=%2F"
+              >
+                {access.status === "signed_out" ? "登录个人空间" : "重新登录"}
               </a>
             ) : null}
           </section>
         </Dashboard>
-      ) : (
-        <PublicDashboard controls={controls} />
       )}
       {notice ? (
         <div className="save-notice" role="status">
@@ -183,73 +178,9 @@ export function App() {
           onClose={() => setPanel(null)}
         />
       ) : null}
+      {panel === "sharing" && access?.status === "active" ? (
+        <ProfileSharing onClose={() => setPanel(null)} />
+      ) : null}
     </>
   );
-}
-
-function PublicDashboard({ controls }: { readonly controls: React.ReactNode }) {
-  const [state, setState] = useState<DashboardState>({ kind: "loading" });
-  const [refreshError, setRefreshError] = useState<string | null>(null);
-  const collectionCompleted = useCallback((snapshot: ActivitySnapshot) => {
-    setState((previous) =>
-      previous.kind === "ready" &&
-      Date.parse(previous.snapshot.until) > Date.parse(snapshot.until)
-        ? previous
-        : { kind: "ready", snapshot },
-    );
-    setRefreshError(null);
-  }, []);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    let timer: ReturnType<typeof setTimeout> | undefined;
-
-    const refresh = () => {
-      void loadDashboard(controller.signal)
-        .then((snapshot) => {
-          if (controller.signal.aborted) return;
-          collectionCompleted(snapshot);
-        })
-        .catch((error: unknown) => {
-          if (controller.signal.aborted) {
-            return;
-          }
-
-          const message =
-            error instanceof Error ? error.message : String(error);
-          setRefreshError(message);
-          setState((previous) =>
-            previous.kind === "ready" ? previous : { kind: "error", message },
-          );
-        })
-        .finally(() => {
-          if (!controller.signal.aborted) {
-            timer = setTimeout(refresh, 5 * 60 * 1000);
-          }
-        });
-    };
-    refresh();
-
-    return () => {
-      controller.abort();
-      clearTimeout(timer);
-    };
-  }, [collectionCompleted]);
-
-  return (
-    <Dashboard
-      state={state}
-      refreshError={refreshError}
-      collectionControl={
-        <>
-          {controls}
-          <CollectionControl onSnapshot={collectionCompleted} />
-        </>
-      }
-    />
-  );
-}
-
-async function loadDashboard(signal: AbortSignal): Promise<ActivitySnapshot> {
-  return fetchJson<ActivitySnapshot>("/api/activity", signal);
 }

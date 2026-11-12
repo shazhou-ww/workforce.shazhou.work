@@ -78,6 +78,7 @@ export class TestD1 implements D1Database {
       "0001_collection.sql",
       "0002_collection_performance.sql",
       "0003_personal_workforce.sql",
+      "0004_public_profiles.sql",
     ]) {
       this.sqlite.exec("BEGIN");
       this.sqlite.exec(

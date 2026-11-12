@@ -11,6 +11,8 @@ import type {
   PersonalActivityResponse,
   PersonalCollectionResponse,
   PersonalConfigResponse,
+  PersonalProfileResponse,
+  PublicProfileResponse,
   PublicRepository,
 } from "@shazhou-work/workforce-contracts";
 import {
@@ -82,6 +84,11 @@ function personalErrorResponse(error: Error, context: Context<PersonalEnv>) {
 personalApi.onError(personalErrorResponse);
 
 personalApi.use("*", async (context: Context<PersonalEnv, "*">, next) => {
+  if (context.req.path.startsWith("/api/profiles/")) {
+    context.header("Cache-Control", "no-store");
+    await next();
+    return;
+  }
   if (
     context.req.path !== "/api/platform/access" &&
     !context.req.path.startsWith("/api/personal/") &&
@@ -140,6 +147,111 @@ personalApi.use("*", async (context: Context<PersonalEnv, "*">, next) => {
 });
 
 personalApi.get("/platform/access", (context) => context.json({}));
+
+personalApi.get("/personal/profile", async (context) => {
+  const row = await context
+    .get("store")
+    .one<{ public_slug: string | null }>(
+      "SELECT public_slug FROM personal_users WHERE id=?",
+      context.get("userId"),
+    );
+  return context.json<PersonalProfileResponse>({
+    publicPath: row?.public_slug ? `/u/${row.public_slug}` : null,
+  });
+});
+
+personalApi.put("/personal/profile", async (context) => {
+  const input: unknown = await context.req.json();
+  if (
+    typeof input !== "object" ||
+    input === null ||
+    !("enabled" in input) ||
+    typeof input.enabled !== "boolean"
+  )
+    throw new PersonalError(
+      "profile_invalid",
+      "Choose whether to publish your profile.",
+      422,
+    );
+  const github = input.enabled
+    ? await githubConnection(context.env, context.get("userId"))
+    : null;
+  if (input.enabled && !github)
+    throw new PersonalError(
+      "github_connection_required",
+      "Connect GitHub before publishing your profile.",
+      409,
+    );
+  const slug = github?.login.toLowerCase() ?? null;
+  if (slug && !/^[a-z\d](?:[a-z\d-]{0,37}[a-z\d])?$/i.test(slug))
+    throw new PersonalError(
+      "profile_invalid",
+      "Reconnect GitHub to update your profile address.",
+      422,
+    );
+  const result = await context
+    .get("store")
+    .one<{ public_slug: string | null }>(
+      "UPDATE personal_users SET public_slug=? WHERE id=? AND status='active' AND NOT EXISTS(SELECT 1 FROM personal_users WHERE public_slug=? AND id<>?) RETURNING public_slug",
+      slug,
+      context.get("userId"),
+      slug,
+      context.get("userId"),
+    );
+  if (!result)
+    throw new PersonalError(
+      "profile_unavailable",
+      "This profile address is unavailable or your access has stopped.",
+      409,
+    );
+  return context.json<PersonalProfileResponse>({
+    publicPath: slug ? `/u/${slug}` : null,
+  });
+});
+
+personalApi.get("/profiles/:slug", async (context) => {
+  const slug = context.req.param("slug");
+  const row = /^[a-z\d](?:[a-z\d-]{0,37}[a-z\d])?$/i.test(slug)
+    ? await database(context.env).one<{
+        public_slug: string;
+        snapshot_json: string | null;
+      }>(
+        "SELECT u.public_slug,s.snapshot_json FROM personal_users u LEFT JOIN personal_state s ON s.id=u.id WHERE u.public_slug=? AND u.status='active'",
+        slug,
+      )
+    : null;
+  if (!row)
+    throw new PersonalError(
+      "profile_not_found",
+      "This profile is not public or does not exist.",
+      404,
+    );
+  const snapshot = row.snapshot_json
+    ? (JSON.parse(row.snapshot_json) as PersonalActivityResponse["snapshot"])
+    : null;
+  return context.json<PublicProfileResponse>({
+    login: row.public_slug,
+    snapshot: snapshot
+      ? {
+          version: snapshot.version,
+          accounts: snapshot.accounts,
+          ...(snapshot.authorFilter
+            ? { authorFilter: snapshot.authorFilter }
+            : {}),
+          generatedAt: snapshot.generatedAt,
+          since: snapshot.since,
+          until: snapshot.until,
+          timezone: snapshot.timezone,
+          days: snapshot.days,
+          totals: snapshot.totals,
+          daily: snapshot.daily,
+          repositories: snapshot.repositories,
+          ...(snapshot.yearly ? { yearly: snapshot.yearly } : {}),
+          ...(snapshot.rolling ? { rolling: snapshot.rolling } : {}),
+        }
+      : null,
+  });
+});
 
 personalApi.get("/personal/config", async (context) => {
   const store = context.get("store");

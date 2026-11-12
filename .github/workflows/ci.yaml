@@ -47,3 +47,19 @@ jobs:
 
       - name: Run all checks
         run: pnpm check
+
+  release-verification:
+    name: Release verification (v1)
+    needs: check
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Confirm required checks succeeded
+        env:
+          CHECK_RESULT: ${{ needs.check.result }}
+        run: |
+          if [ "$CHECK_RESULT" != success ]; then
+            echo "::error::Every required validation job must succeed; received $CHECK_RESULT."
+            exit 1
+          fi

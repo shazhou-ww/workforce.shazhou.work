@@ -39,3 +39,30 @@
   deployment on pushes to `main`, or bypass the workflow with manual deployment.
 - Verify the GitHub Actions deployment succeeds and check the production API and
   UI before reporting a release as complete.
+
+## Publishing
+
+- Keep repository release knowledge here, not in a project skill. See
+  [README](README.md#publish-one-package) for setup and commands.
+- Release one explicitly mapped package with `<package-id>-v<version>` tags.
+  Never batch-publish workspaces or automatically release dependencies.
+- Update the package mapping in `scripts/release-packages.js` when renaming or
+  adding a publishable library. Keep the root, apps, and preset examples
+  private.
+- Require the tag's package identity and exact version to match both the tagged
+  commit's manifest and the packed manifest, including prerelease suffixes.
+- Publish stable versions to `latest` and prerelease versions to `rc`.
+  Prerelease versions must use `x.y.z-rc.n`, with `n` starting at `0` and
+  increasing by one for each subsequent prerelease of the same target version.
+- Publish only commits reachable from main with successful exact-commit main
+  push CI. Keep the versioned CI aggregate and verifier arguments aligned.
+- Build the selected package and its dependencies, then pack the selected
+  package once with lifecycle hooks disabled. Validate and publish that same
+  tarball.
+- Internal runtime and peer dependencies must have matching versions already on
+  npm. Publish missing dependencies separately before tagging the dependent
+  package.
+- Use npm Trusted Publishing, not stored tokens. Manual workflow runs are dry
+  runs only. Never push release tags or publish without explicit authorization.
+- Release tags are immutable. Retry a failed pre-publication run without moving
+  its tag; an existing npm version must block publication.

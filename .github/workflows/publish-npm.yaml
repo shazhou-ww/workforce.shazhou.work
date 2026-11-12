@@ -1,0 +1,113 @@
+name: Publish package to npm
+
+on:
+  push:
+    tags:
+      - "*-v*"
+  workflow_dispatch:
+    inputs:
+      package:
+        description:
+          Package ID to validate with an npm dry run (never publishes)
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: npm-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish verified package
+    runs-on: ubuntu-latest
+    environment: npm
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    env:
+      RELEASE_EVENT: ${{ github.event_name }}
+      RELEASE_TAG: ${{ github.ref_name }}
+      PACKAGE_INPUT: ${{ inputs.package }}
+    steps:
+      - name: Check out release commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify release commit is on main
+        run: |
+          if ! git merge-base --is-ancestor "$(git rev-parse HEAD)" refs/remotes/origin/main; then
+            echo "::error::The release commit must be reachable from origin/main."
+            exit 1
+          fi
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.11.1
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify release metadata
+        id: release
+        run: node scripts/release.js metadata
+
+      - name: Verify exact-commit main CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pnpm exec github-ci-verify \
+            --sha "$(git rev-parse HEAD)" \
+            --branch main \
+            --workflow ci.yaml \
+            --job-name "Release verification (v1)" \
+            --step-name "Confirm required checks succeeded" \
+            --json --summary
+
+      - name: Build package and workspace dependencies
+        env:
+          PACKAGE_NAME: ${{ steps.release.outputs.name }}
+        run: pnpm exec turbo run build --filter="${PACKAGE_NAME}..."
+
+      - name: Pack only the selected package
+        env:
+          PACKAGE_DIRECTORY: ${{ steps.release.outputs.directory }}
+        run: |
+          PACKAGE_TARBALL="$RUNNER_TEMP/release-package.tgz"
+          pnpm --config.ignore-scripts=true --dir "$PACKAGE_DIRECTORY" pack --out "$PACKAGE_TARBALL"
+          echo "PACKAGE_TARBALL=$PACKAGE_TARBALL" >> "$GITHUB_ENV"
+
+      - name: Verify artifact identity and published workspace dependencies
+        run: node scripts/release.js artifact
+
+      - name: Validate package artifact
+        run: pnpm exec publint "$PACKAGE_TARBALL"
+
+      - name: Install the trusted publishing client
+        run: npm install --global npm@11.21.0
+
+      - name: Publish selected package
+        if: github.event_name == 'push'
+        env:
+          DIST_TAG: ${{ steps.release.outputs.dist_tag }}
+        run: >-
+          npm publish "$PACKAGE_TARBALL" --access public --tag "$DIST_TAG"
+          --registry=https://registry.npmjs.org/
+
+      - name: Validate without publishing
+        if: github.event_name == 'workflow_dispatch'
+        run: >-
+          npm publish "$PACKAGE_TARBALL" --dry-run --access public --tag
+          oidc-dry-run --registry=https://registry.npmjs.org/

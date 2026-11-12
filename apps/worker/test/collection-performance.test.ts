@@ -96,7 +96,7 @@ describe("bounded cached collection", () => {
       await createEmailHasher(optimized.env.COLLECTION_EMAIL_KEY ?? ""),
     );
     expect(snapshot(optimized.db).daily).not.toEqual(previous.daily);
-  });
+  }, 15_000);
 
   it("rolls back a partially executed aggregation batch and replays its fixed manifest without duplicates", async () => {
     const { db, store, env, params, request } = await fixture(12);

@@ -1,6 +1,6 @@
 {
   "benchmark": "collection-performance",
-  "baselineRevision": "fd026f3cffb81570cd5b45c3472d7e1a1b88e101",
+  "baselineRevision": "1684ff2877d4a19c349c1579fbd794fcf07d2d12",
   "fixture": {
     "repositories": 70,
     "reused": 68,
@@ -27,9 +27,9 @@
       "scenario": "mixed",
       "baseline": {
         "variant": "baseline",
-        "wallMs": 29144.9387,
-        "callbackMs": 27816.488500000014,
-        "planningAggregationMs": 24333.122100000015,
+        "wallMs": 29138.2148,
+        "callbackMs": 27809.51749999998,
+        "planningAggregationMs": 24384.226599999987,
         "planningAggregationCallbacks": 140,
         "planningAggregationRoundTrips": 1610,
         "planningAggregationStatements": 2172,
@@ -37,48 +37,48 @@
         "roundTrips": 1878,
         "statements": 2516,
         "batches": 154,
-        "waitMs": 27937.51630000002,
+        "waitMs": 27990.01509999998,
         "githubRequests": 12,
         "phases": [
           {
             "phase": "aggregation",
             "callbacks": 70,
-            "activeMs": 10598.676400000004,
+            "activeMs": 10641.3069,
             "rest": 0,
             "graphql": 0
           },
           {
             "phase": "discovery",
             "callbacks": 2,
-            "activeMs": 320.38980000000015,
+            "activeMs": 317.88549999999964,
             "rest": 1,
             "graphql": 0
           },
           {
             "phase": "history",
             "callbacks": 2,
-            "activeMs": 390.91739999999845,
+            "activeMs": 397.27770000000237,
             "rest": 0,
             "graphql": 2
           },
           {
             "phase": "metadata",
             "callbacks": 7,
-            "activeMs": 953.789099999999,
+            "activeMs": 958.2197999999999,
             "rest": 0,
             "graphql": 7
           },
           {
             "phase": "planning",
             "callbacks": 70,
-            "activeMs": 11623.428100000012,
+            "activeMs": 11601.418299999987,
             "rest": 2,
             "graphql": 0
           },
           {
             "phase": "publication",
             "callbacks": 4,
-            "activeMs": 1591.6010999999971,
+            "activeMs": 1523.2278999999976,
             "rest": 0,
             "graphql": 0
           }
@@ -86,9 +86,9 @@
       },
       "optimized": {
         "variant": "optimized",
-        "wallMs": 4122.135100000003,
-        "callbackMs": 3823.012400000014,
-        "planningAggregationMs": 1550.9352000000035,
+        "wallMs": 4093.250899999999,
+        "callbackMs": 3795.2103000000025,
+        "planningAggregationMs": 1533.4252000000051,
         "planningAggregationCallbacks": 19,
         "planningAggregationRoundTrips": 102,
         "planningAggregationStatements": 786,
@@ -96,48 +96,48 @@
         "roundTrips": 227,
         "statements": 987,
         "batches": 32,
-        "waitMs": 3298.2458999999617,
+        "waitMs": 3272.267000000036,
         "githubRequests": 12,
         "phases": [
           {
             "phase": "aggregation",
             "callbacks": 9,
-            "activeMs": 574.7105000000047,
+            "activeMs": 576.5437999999995,
             "rest": 0,
             "graphql": 0
           },
           {
             "phase": "discovery",
             "callbacks": 2,
-            "activeMs": 166.69299999999566,
+            "activeMs": 166.46299999999974,
             "rest": 1,
             "graphql": 0
           },
           {
             "phase": "history",
             "callbacks": 2,
-            "activeMs": 243.84429999999702,
+            "activeMs": 243.35829999999987,
             "rest": 0,
             "graphql": 2
           },
           {
             "phase": "metadata",
             "callbacks": 7,
-            "activeMs": 424.7946000000011,
+            "activeMs": 423.28029999999853,
             "rest": 0,
             "graphql": 7
           },
           {
             "phase": "planning",
             "callbacks": 10,
-            "activeMs": 686.2168999999994,
+            "activeMs": 667.8308999999826,
             "rest": 2,
             "graphql": 0
           },
           {
             "phase": "publication",
             "callbacks": 4,
-            "activeMs": 1211.7117000000108,
+            "activeMs": 1201.6957999999904,
             "rest": 0,
             "graphql": 0
           }
@@ -149,9 +149,9 @@
       "scenario": "mixed",
       "baseline": {
         "variant": "baseline",
-        "wallMs": 29255.294800000003,
-        "callbackMs": 27915.678799999965,
-        "planningAggregationMs": 24406.816899999947,
+        "wallMs": 29200.971300000005,
+        "callbackMs": 27860.90929999997,
+        "planningAggregationMs": 24425.628499999977,
         "planningAggregationCallbacks": 140,
         "planningAggregationRoundTrips": 1610,
         "planningAggregationStatements": 2172,
@@ -159,48 +159,48 @@
         "roundTrips": 1878,
         "statements": 2516,
         "batches": 154,
-        "waitMs": 28018.52270000001,
+        "waitMs": 28074.0464000001,
         "githubRequests": 12,
         "phases": [
           {
             "phase": "aggregation",
             "callbacks": 70,
-            "activeMs": 10595.998099999968,
+            "activeMs": 10614.269799999965,
             "rest": 0,
             "graphql": 0
           },
           {
             "phase": "discovery",
             "callbacks": 2,
-            "activeMs": 316.1703999999954,
+            "activeMs": 320.31990000000224,
             "rest": 1,
             "graphql": 0
           },
           {
             "phase": "history",
             "callbacks": 2,
-            "activeMs": 397.40260000000126,
+            "activeMs": 394.08110000001034,
             "rest": 0,
             "graphql": 2
           },
           {
             "phase": "metadata",
             "callbacks": 7,
-            "activeMs": 955.2562999999864,
+            "activeMs": 960.3764999999839,
             "rest": 0,
             "graphql": 7
           },
           {
             "phase": "planning",
             "callbacks": 70,
-            "activeMs": 11680.613699999987,
+            "activeMs": 11677.522300000026,
             "rest": 2,
             "graphql": 0
           },
           {
             "phase": "publication",
             "callbacks": 4,
-            "activeMs": 1612.2653999999966,
+            "activeMs": 1531.4732000000004,
             "rest": 0,
             "graphql": 0
           }
@@ -208,9 +208,9 @@
       },
       "optimized": {
         "variant": "optimized",
-        "wallMs": 4051.191399999996,
-        "callbackMs": 3756.340299999996,
-        "planningAggregationMs": 1537.2578999999969,
+        "wallMs": 4259.8968999999925,
+        "callbackMs": 3962.4118000000453,
+        "planningAggregationMs": 1529.40780000003,
         "planningAggregationCallbacks": 19,
         "planningAggregationRoundTrips": 102,
         "planningAggregationStatements": 786,
@@ -218,48 +218,48 @@
         "roundTrips": 227,
         "statements": 987,
         "batches": 32,
-        "waitMs": 3288.780599999969,
+        "waitMs": 3267.0833999999304,
         "githubRequests": 12,
         "phases": [
           {
             "phase": "aggregation",
             "callbacks": 9,
-            "activeMs": 561.6525999999867,
+            "activeMs": 563.1961000000301,
             "rest": 0,
             "graphql": 0
           },
           {
             "phase": "discovery",
             "callbacks": 2,
-            "activeMs": 167.55379999999423,
+            "activeMs": 165.93420000000333,
             "rest": 1,
             "graphql": 0
           },
           {
             "phase": "history",
             "callbacks": 2,
-            "activeMs": 243.5155999999988,
+            "activeMs": 241.6460999999981,
             "rest": 0,
             "graphql": 2
           },
           {
             "phase": "metadata",
             "callbacks": 7,
-            "activeMs": 426.700800000006,
+            "activeMs": 424.34519999998156,
             "rest": 0,
             "graphql": 7
           },
           {
             "phase": "planning",
             "callbacks": 10,
-            "activeMs": 687.0043999999907,
+            "activeMs": 679.8560000000289,
             "rest": 2,
             "graphql": 0
           },
           {
             "phase": "publication",
             "callbacks": 4,
-            "activeMs": 1154.286699999997,
+            "activeMs": 1374.800000000003,
             "rest": 0,
             "graphql": 0
           }
@@ -271,9 +271,9 @@
       "scenario": "mixed",
       "baseline": {
         "variant": "baseline",
-        "wallMs": 29208.458700000003,
-        "callbackMs": 27869.577900000106,
-        "planningAggregationMs": 24407.382800000123,
+        "wallMs": 29270.29950000001,
+        "callbackMs": 27944.158099999884,
+        "planningAggregationMs": 24412.842199999868,
         "planningAggregationCallbacks": 140,
         "planningAggregationRoundTrips": 1610,
         "planningAggregationStatements": 2172,
@@ -281,48 +281,48 @@
         "roundTrips": 1878,
         "statements": 2516,
         "batches": 154,
-        "waitMs": 28031.666299999633,
+        "waitMs": 27989.247299999945,
         "githubRequests": 12,
         "phases": [
           {
             "phase": "aggregation",
             "callbacks": 70,
-            "activeMs": 10620.408299999996,
+            "activeMs": 10641.031999999977,
             "rest": 0,
             "graphql": 0
           },
           {
             "phase": "discovery",
             "callbacks": 2,
-            "activeMs": 317.9355999999825,
+            "activeMs": 317.3250999999873,
             "rest": 1,
             "graphql": 0
           },
           {
             "phase": "history",
             "callbacks": 2,
-            "activeMs": 396.88700000000244,
+            "activeMs": 393.8609000000142,
             "rest": 0,
             "graphql": 2
           },
           {
             "phase": "metadata",
             "callbacks": 7,
-            "activeMs": 955.7045999999827,
+            "activeMs": 949.2820000000211,
             "rest": 0,
             "graphql": 7
           },
           {
             "phase": "planning",
             "callbacks": 70,
-            "activeMs": 11658.256900000022,
+            "activeMs": 11650.552400000059,
             "rest": 2,
             "graphql": 0
           },
           {
             "phase": "publication",
             "callbacks": 4,
-            "activeMs": 1561.8580999999976,
+            "activeMs": 1644.0912000000098,
             "rest": 0,
             "graphql": 0
           }
@@ -330,9 +330,9 @@
       },
       "optimized": {
         "variant": "optimized",
-        "wallMs": 4092.238999999987,
-        "callbackMs": 3795.209399999978,
-        "planningAggregationMs": 1532.57190000001,
+        "wallMs": 4148.045400000003,
+        "callbackMs": 3841.9145000000135,
+        "planningAggregationMs": 1534.560799999992,
         "planningAggregationCallbacks": 19,
         "planningAggregationRoundTrips": 102,
         "planningAggregationStatements": 786,
@@ -340,48 +340,48 @@
         "roundTrips": 227,
         "statements": 987,
         "batches": 32,
-        "waitMs": 3294.3481999999785,
+        "waitMs": 3288.2772000000987,
         "githubRequests": 12,
         "phases": [
           {
             "phase": "aggregation",
             "callbacks": 9,
-            "activeMs": 569.3937000000151,
+            "activeMs": 563.4165000000357,
             "rest": 0,
             "graphql": 0
           },
           {
             "phase": "discovery",
             "callbacks": 2,
-            "activeMs": 168.005799999999,
+            "activeMs": 170.04339999999502,
             "rest": 1,
             "graphql": 0
           },
           {
             "phase": "history",
             "callbacks": 2,
-            "activeMs": 244.92949999998382,
+            "activeMs": 241.57089999999152,
             "rest": 0,
             "graphql": 2
           },
           {
             "phase": "metadata",
             "callbacks": 7,
-            "activeMs": 422.72069999999076,
+            "activeMs": 424.7066000000341,
             "rest": 0,
             "graphql": 7
           },
           {
             "phase": "planning",
             "callbacks": 10,
-            "activeMs": 684.2263000000239,
+            "activeMs": 682.0788000000175,
             "rest": 2,
             "graphql": 0
           },
           {
             "phase": "publication",
             "callbacks": 4,
-            "activeMs": 1197.347499999989,
+            "activeMs": 1244.9755999999907,
             "rest": 0,
             "graphql": 0
           }
@@ -393,9 +393,9 @@
       "scenario": "all-reuse",
       "baseline": {
         "variant": "baseline",
-        "wallMs": 28709.84079999999,
-        "callbackMs": 27400.107699999993,
-        "planningAggregationMs": 24441.8125,
+        "wallMs": 28739.47540000001,
+        "callbackMs": 27432.36099999996,
+        "planningAggregationMs": 24426.296199999982,
         "planningAggregationCallbacks": 140,
         "planningAggregationRoundTrips": 1610,
         "planningAggregationStatements": 2170,
@@ -403,41 +403,41 @@
         "roundTrips": 1848,
         "statements": 2480,
         "batches": 152,
-        "waitMs": 27637.659100000295,
+        "waitMs": 27630.297800000495,
         "githubRequests": 8,
         "phases": [
           {
             "phase": "aggregation",
             "callbacks": 70,
-            "activeMs": 10622.651400000075,
+            "activeMs": 10616.149700000067,
             "rest": 0,
             "graphql": 0
           },
           {
             "phase": "discovery",
             "callbacks": 2,
-            "activeMs": 319.6590000000142,
+            "activeMs": 319.05899999999383,
             "rest": 1,
             "graphql": 0
           },
           {
             "phase": "metadata",
             "callbacks": 7,
-            "activeMs": 954.9628999999986,
+            "activeMs": 958.635999999984,
             "rest": 0,
             "graphql": 7
           },
           {
             "phase": "planning",
             "callbacks": 70,
-            "activeMs": 11686.16130000005,
+            "activeMs": 11681.96640000015,
             "rest": 0,
             "graphql": 0
           },
           {
             "phase": "publication",
             "callbacks": 4,
-            "activeMs": 1483.4336000000185,
+            "activeMs": 1529.9614999999612,
             "rest": 0,
             "graphql": 0
           }
@@ -445,9 +445,9 @@
       },
       "optimized": {
         "variant": "optimized",
-        "wallMs": 3388.2198999999964,
-        "callbackMs": 3151.898200000054,
-        "planningAggregationMs": 1135.5785000000615,
+        "wallMs": 3534.279899999994,
+        "callbackMs": 3288.9134000000486,
+        "planningAggregationMs": 1135.8026000000827,
         "planningAggregationCallbacks": 15,
         "planningAggregationRoundTrips": 76,
         "planningAggregationStatements": 762,
@@ -455,41 +455,41 @@
         "roundTrips": 179,
         "statements": 937,
         "batches": 26,
-        "waitMs": 2573.3152999999293,
+        "waitMs": 2580.526000000129,
         "githubRequests": 8,
         "phases": [
           {
             "phase": "aggregation",
             "callbacks": 7,
-            "activeMs": 419.49420000004466,
+            "activeMs": 411.6037999999826,
             "rest": 0,
             "graphql": 0
           },
           {
             "phase": "discovery",
             "callbacks": 2,
-            "activeMs": 167.24400000000605,
+            "activeMs": 167.19509999998263,
             "rest": 1,
             "graphql": 0
           },
           {
             "phase": "metadata",
             "callbacks": 7,
-            "activeMs": 423.71199999999953,
+            "activeMs": 424.34029999998165,
             "rest": 0,
             "graphql": 7
           },
           {
             "phase": "planning",
             "callbacks": 8,
-            "activeMs": 498.5485000000335,
+            "activeMs": 499.0273000001034,
             "rest": 0,
             "graphql": 0
           },
           {
             "phase": "publication",
             "callbacks": 4,
-            "activeMs": 1227.842100000009,
+            "activeMs": 1364.9678999999887,
             "rest": 0,
             "graphql": 0
           }
@@ -501,9 +501,9 @@
       "scenario": "first",
       "baseline": {
         "variant": "baseline",
-        "wallMs": 1050.3963000000222,
-        "callbackMs": 1041.021700000012,
-        "planningAggregationMs": 94.6480000000156,
+        "wallMs": 1060.164699999994,
+        "callbackMs": 1048.9235999997472,
+        "planningAggregationMs": 106.32319999986794,
         "planningAggregationCallbacks": 140,
         "planningAggregationRoundTrips": 1610,
         "planningAggregationStatements": 2170,
@@ -517,42 +517,42 @@
           {
             "phase": "aggregation",
             "callbacks": 70,
-            "activeMs": 64.8910999999789,
+            "activeMs": 72.81579999995301,
             "rest": 0,
             "graphql": 0
           },
           {
             "phase": "discovery",
             "callbacks": 2,
-            "activeMs": 2.5802000000257976,
+            "activeMs": 2.9976000000024214,
             "rest": 2,
             "graphql": 0
           },
           {
             "phase": "history",
             "callbacks": 70,
-            "activeMs": 165.26369999995222,
+            "activeMs": 185.2852000001585,
             "rest": 0,
             "graphql": 70
           },
           {
             "phase": "metadata",
             "callbacks": 7,
-            "activeMs": 5.983199999987846,
+            "activeMs": 6.789199999970151,
             "rest": 0,
             "graphql": 7
           },
           {
             "phase": "planning",
             "callbacks": 70,
-            "activeMs": 22.963599999900907,
+            "activeMs": 26.040900000021793,
             "rest": 0,
             "graphql": 0
           },
           {
             "phase": "publication",
             "callbacks": 4,
-            "activeMs": 768.2603999999992,
+            "activeMs": 742.4070000000065,
             "rest": 0,
             "graphql": 0
           }
@@ -560,9 +560,9 @@
       },
       "optimized": {
         "variant": "optimized",
-        "wallMs": 892.6393000000098,
-        "callbackMs": 883.0532000000239,
-        "planningAggregationMs": 101.18360000001849,
+        "wallMs": 1061.6875,
+        "callbackMs": 1050.870200000034,
+        "planningAggregationMs": 105.80299999992712,
         "planningAggregationCallbacks": 141,
         "planningAggregationRoundTrips": 916,
         "planningAggregationStatements": 1476,
@@ -576,42 +576,42 @@
           {
             "phase": "aggregation",
             "callbacks": 70,
-            "activeMs": 69.1993000000657,
+            "activeMs": 69.5999999998894,
             "rest": 0,
             "graphql": 0
           },
           {
             "phase": "discovery",
             "callbacks": 2,
-            "activeMs": 2.252199999988079,
+            "activeMs": 2.32129999998142,
             "rest": 2,
             "graphql": 0
           },
           {
             "phase": "history",
             "callbacks": 70,
-            "activeMs": 164.0205999999016,
+            "activeMs": 178.29109999994398,
             "rest": 0,
             "graphql": 70
           },
           {
             "phase": "metadata",
             "callbacks": 7,
-            "activeMs": 6.306800000020303,
+            "activeMs": 6.750800000037998,
             "rest": 0,
             "graphql": 7
           },
           {
             "phase": "planning",
             "callbacks": 71,
-            "activeMs": 24.699700000026496,
+            "activeMs": 27.76210000005085,
             "rest": 0,
             "graphql": 0
           },
           {
             "phase": "publication",
             "callbacks": 4,
-            "activeMs": 604.7378999999783,
+            "activeMs": 752.7567999999737,
             "rest": 0,
             "graphql": 0
           }
@@ -619,5 +619,5 @@
       }
     }
   ],
-  "planningAggregationMedianReduction": 0.9437248352103509
+  "planningAggregationMedianReduction": 0.9441773775398405
 }

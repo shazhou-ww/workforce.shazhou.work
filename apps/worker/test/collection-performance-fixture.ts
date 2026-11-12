@@ -5,6 +5,7 @@ import { runCollection, type CollectionSteps } from "../src/collection.js";
 import type { Bindings } from "../src/env.js";
 import type { GitHubRepository, RawCommit } from "../src/collection-github.js";
 import { TestD1 } from "./d1.js";
+import { retainGitHub } from "../src/platform.js";
 
 export const cutoff = "2026-11-12T12:00:00.000Z";
 export const fixtureUser = "00000000-0000-4000-8000-000000000001";
@@ -59,6 +60,17 @@ export async function performanceFixture(size = 70, initialize = true) {
       delete: vi.fn(),
     },
   };
+  await retainGitHub(
+    env,
+    fixtureUser,
+    {
+      id: "100",
+      login: owner.login,
+      avatarUrl: "https://avatars.githubusercontent.com/u/100",
+    },
+    "synthetic-oauth-token",
+    "read:user,user:email,read:org",
+  );
   const repositories: GitHubRepository[] = Array.from(
     { length: size },
     (_, index) => ({

@@ -535,6 +535,13 @@ describe("personal access and invitations", () => {
     ).json<{ id: string }>();
     expect(reinvited.id).not.toBe(invitation.id);
     const id = await registerIdentity(env, "github", "202", [invitation.email]);
+    await retainGitHub(
+      env,
+      id!,
+      { ...github, id: "202" },
+      "oauth-private-token",
+      "read:user,user:email,read:org",
+    );
     const scoped = new CollectionStore(env.DB!, id!);
     await scoped.saveConfig(config);
     const started = await startPersonalCollection(env, id!);
@@ -1330,7 +1337,7 @@ describe("personal configuration, discovery and isolation", () => {
     });
   });
 
-  it("validates users and organizations through the collector's public discovery and owner credential routes", async () => {
+  it("validates public users, organizations, and explicit repositories with the user's OAuth credential, ignoring server overrides", async () => {
     const { env } = fixture();
     const id = await user(env);
     const profiles = {
@@ -1354,15 +1361,14 @@ describe("personal configuration, discovery and isolation", () => {
         input instanceof Request ? input.url : input.toString(),
       );
       const authorization = new Headers(init?.headers).get("authorization");
+      expect(authorization).toBe("Bearer oauth-private-token");
       const profile = Object.values(profiles).find(
         (account) => url.pathname === `/users/${account.login}`,
       );
       if (profile) {
-        expect(authorization).toBeNull();
         return Promise.resolve(Response.json(profile));
       }
       if (url.pathname === "/users/primary/repos") {
-        expect(authorization).toBe("Bearer server-token");
         expect(url.searchParams.get("type")).toBe("owner");
         return Promise.resolve(
           Response.json(
@@ -1375,17 +1381,14 @@ describe("personal configuration, discovery and isolation", () => {
         );
       }
       if (url.pathname === "/orgs/public-empty/repos") {
-        expect(authorization).toBeNull();
         expect(url.searchParams.get("type")).toBe("public");
         return Promise.resolve(Response.json([]));
       }
       if (url.pathname === "/orgs/public-org/repos") {
-        expect(authorization).toBe("Bearer organization-discovery-token");
         expect(url.searchParams.get("type")).toBe("public");
         return Promise.resolve(Response.json(orgRepositories));
       }
       if (url.pathname.startsWith("/repos/public-org/")) {
-        expect(authorization).toBe("Bearer organization-discovery-token");
         return Promise.resolve(
           Response.json(
             orgRepositories[url.pathname.endsWith("/kept") ? 1 : 0],
@@ -1396,7 +1399,11 @@ describe("personal configuration, discovery and isolation", () => {
     });
     vi.stubGlobal("fetch", request);
     const response = await call(
-      { ...env, GH_TOKEN_PUBLIC_ORG: "organization-discovery-token" },
+      {
+        ...env,
+        GH_TOKEN: "",
+        GH_TOKEN_PUBLIC_ORG: "organization-discovery-token",
+      },
       "/personal/config",
       await session(id),
       "PUT",
@@ -1435,7 +1442,7 @@ describe("personal configuration, discovery and isolation", () => {
     [403, "github_access_denied", 403],
     [429, "github_rate_limited", 429],
     [404, "repository_not_found", 404],
-    [401, "collection_unavailable", 503],
+    [401, "github_connection_required", 409],
   ] as const)(
     "preserves organization discovery HTTP %i failures without changing credentials or the saved config",
     async (status, code, expectedStatus) => {
@@ -1451,7 +1458,9 @@ describe("personal configuration, discovery and isolation", () => {
             input instanceof Request ? input.url : input.toString(),
           );
           if (url.pathname === "/users/public-org") {
-            expect(new Headers(init?.headers).has("authorization")).toBe(false);
+            expect(new Headers(init?.headers).get("authorization")).toBe(
+              "Bearer oauth-private-token",
+            );
             return Promise.resolve(
               Response.json({
                 id: 302,
@@ -1463,7 +1472,7 @@ describe("personal configuration, discovery and isolation", () => {
           calls.push(url.pathname);
           expect(url.pathname).toBe("/orgs/public-org/repos");
           expect(new Headers(init?.headers).get("authorization")).toBe(
-            "Bearer organization-discovery-token",
+            "Bearer oauth-private-token",
           );
           return Promise.resolve(
             Response.json(
@@ -1732,8 +1741,84 @@ describe("scoped collection and migration safety", () => {
       code: "configuration_required",
     });
     await expect(
-      startPersonalCollection({ ...env, GH_TOKEN: "" }, first),
+      startPersonalCollection({ ...env, COLLECTION_EMAIL_KEY: "" }, first),
     ).rejects.toMatchObject({ code: "collection_unavailable" });
+  });
+
+  it.each(["missing", "corrupt"] as const)(
+    "rejects a %s user credential without falling back or reserving a personal run",
+    async (state) => {
+      const { env, create } = fixture();
+      const id = await user(env);
+      const other = await user(env, "202", "second@example.invalid");
+      const store = new CollectionStore(env.DB!, id);
+      const revisionId = await store.saveConfig(config);
+      if (state === "missing")
+        await store
+          .statement("DELETE FROM personal_github WHERE user_id=?", id)
+          .run();
+      else
+        await store
+          .statement(
+            "UPDATE personal_github SET credential=? WHERE user_id=?",
+            await encryptCredential(env, other, "other-user-token"),
+            id,
+          )
+          .run();
+      const request = vi.fn<typeof fetch>();
+      vi.stubGlobal("fetch", request);
+      expect(
+        await (
+          await call(env, "/personal/config", await session(id), "PUT", config)
+        ).json(),
+      ).toMatchObject({ code: "github_connection_required" });
+      await expect(startPersonalCollection(env, id)).rejects.toMatchObject({
+        code: "github_connection_required",
+      });
+      await expect(
+        runCollection(
+          env,
+          {
+            runId: "no-credential",
+            revisionId,
+            until: new Date().toISOString(),
+            userId: id,
+          },
+          { do: (_name, callback) => callback() },
+          request,
+        ),
+      ).rejects.toMatchObject({ code: "github_connection_required" });
+      expect(request).not.toHaveBeenCalled();
+      expect(create).not.toHaveBeenCalled();
+      expect(
+        await store.one(
+          "SELECT active_run_id FROM personal_state WHERE id=?",
+          id,
+        ),
+      ).toEqual({ active_run_id: null });
+      expect((await store.activeConfig()).revisionId).toBe(revisionId);
+    },
+  );
+
+  it("starts manual and scheduled personal collections without server collection tokens", async () => {
+    const { env, create } = fixture();
+    const id = await user(env);
+    const other = await user(env, "202", "second@example.invalid");
+    await new CollectionStore(env.DB!, id).saveConfig(config);
+    await new CollectionStore(env.DB!, other).saveConfig({
+      ...config,
+      enabled: true,
+    });
+    const oauthEnv = { ...env };
+    delete oauthEnv.GH_TOKEN;
+    expect((await startPersonalCollection(oauthEnv, id))!.runId).toBeTruthy();
+    expect(
+      (await startPersonalCollection(oauthEnv, other, Date.now()))!.runId,
+    ).toBeTruthy();
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(create.mock.calls)).not.toContain(
+      "oauth-private-token",
+    );
   });
 
   it("reports rate-limit waits and recovers externally stopped workflows without leaving a permanent personal lock", async () => {
@@ -2050,114 +2135,179 @@ describe("scoped collection and migration safety", () => {
     ).toEqual({ snapshot_json: null });
   });
 
-  it("collects complete personal history and yearly statistics without touching the public KV or another user's sync watermark", async () => {
-    const { env, store, put } = fixture();
-    const id = await user(env);
-    const personal = new CollectionStore(env.DB!, id);
-    const revision = await personal.saveConfig(config);
-    const until = "2026-11-12T04:00:00.000Z";
-    const sha = "a".repeat(40);
-    const request = vi.fn<typeof fetch>().mockImplementation((input, init) => {
-      const url = input instanceof Request ? input.url : input.toString();
-      if (url.includes("/repos/"))
-        return Promise.resolve(Response.json(publicRepository));
-      const body = JSON.parse(
-        typeof init?.body === "string" ? init.body : "{}",
-      ) as { query: string };
-      if (body.query.includes("Metadata"))
-        return Promise.resolve(
-          Response.json({
-            data: {
-              repository: {
-                databaseId: 501,
-                isPrivate: false,
-                nameWithOwner: "primary/public",
-                url: publicRepository.html_url,
-                description: "Public",
-                isFork: true,
-                isArchived: false,
-                defaultBranchRef: {
-                  name: "main",
-                  target: {
-                    oid: sha,
-                    committedDate: until,
-                    messageHeadline: "Public activity",
-                    url: `${publicRepository.html_url}/commit/${sha}`,
+  it.each(["explicit", "all_owned_public"] as const)(
+    "collects %s personal history with only the user's OAuth token and public repositories",
+    async (repositoryMode) => {
+      const { env, store, put } = fixture();
+      const id = await user(env);
+      const other = await user(env, "202", "second@example.invalid");
+      await retainGitHub(
+        env,
+        other,
+        { ...github, id: "202" },
+        "other-user-token",
+        "read:user,user:email,read:org",
+      );
+      const oauthEnv = {
+        ...env,
+        GH_TOKEN_PRIMARY: "server-owner-token",
+      };
+      delete oauthEnv.GH_TOKEN;
+      const personal = new CollectionStore(env.DB!, id);
+      const revision = await personal.saveConfig({
+        ...config,
+        repositoryMode,
+        accounts: ["primary"],
+      });
+      const until = "2026-11-12T04:00:00.000Z";
+      const sha = "a".repeat(40);
+      const collectedRepository = {
+        ...publicRepository,
+        owner: { ...publicRepository.owner, type: "Organization" },
+      };
+      let expectedToken = "oauth-private-token";
+      const request = vi
+        .fn<typeof fetch>()
+        .mockImplementation((input, init) => {
+          const url = input instanceof Request ? input.url : input.toString();
+          expect(new Headers(init?.headers).get("authorization")).toBe(
+            `Bearer ${expectedToken}`,
+          );
+          if (url.endsWith("/users/primary"))
+            return Promise.resolve(
+              Response.json({
+                ...publicRepository.owner,
+                type: "Organization",
+              }),
+            );
+          if (url.includes("/orgs/primary/repos")) {
+            expect(new URL(url).searchParams.get("type")).toBe("public");
+            return Promise.resolve(
+              Response.json([
+                collectedRepository,
+                {
+                  ...collectedRepository,
+                  id: 502,
+                  full_name: "primary/private",
+                  private: true,
+                },
+              ]),
+            );
+          }
+          if (url.includes("/repos/"))
+            return Promise.resolve(Response.json(collectedRepository));
+          const body = JSON.parse(
+            typeof init?.body === "string" ? init.body : "{}",
+          ) as { query: string };
+          if (body.query.includes("Metadata"))
+            return Promise.resolve(
+              Response.json({
+                data: {
+                  repository: {
+                    databaseId: 501,
+                    isPrivate: false,
+                    nameWithOwner: "primary/public",
+                    url: publicRepository.html_url,
+                    description: "Public",
+                    isFork: true,
+                    isArchived: false,
+                    defaultBranchRef: {
+                      name: "main",
+                      target: {
+                        oid: sha,
+                        committedDate: until,
+                        messageHeadline: "Public activity",
+                        url: `${publicRepository.html_url}/commit/${sha}`,
+                      },
+                    },
+                  },
+                },
+              }),
+            );
+          return Promise.resolve(
+            Response.json({
+              data: {
+                repository: {
+                  isPrivate: false,
+                  object: {
+                    history: {
+                      nodes: [
+                        {
+                          oid: sha,
+                          committedDate: until,
+                          additions: 12,
+                          deletions: 3,
+                          author: {
+                            email: "history@example.invalid",
+                            user: { login: "historical" },
+                          },
+                        },
+                      ],
+                      pageInfo: { hasNextPage: false, endCursor: null },
+                    },
                   },
                 },
               },
-            },
-          }),
-        );
-      return Promise.resolve(
-        Response.json({
-          data: {
-            repository: {
-              isPrivate: false,
-              object: {
-                history: {
-                  nodes: [
-                    {
-                      oid: sha,
-                      committedDate: until,
-                      additions: 12,
-                      deletions: 3,
-                      author: {
-                        email: "history@example.invalid",
-                        user: { login: "historical" },
-                      },
-                    },
-                  ],
-                  pageInfo: { hasNextPage: false, endCursor: null },
-                },
-              },
-            },
-          },
-        }),
+            }),
+          );
+        });
+      const params = {
+        runId: "personal-complete",
+        revisionId: revision,
+        until,
+        userId: id,
+      };
+      await runCollection(
+        oauthEnv,
+        params,
+        { do: (_name, callback) => callback() },
+        request,
       );
-    });
-    const params = {
-      runId: "personal-complete",
-      revisionId: revision,
-      until,
-      userId: id,
-    };
-    await runCollection(
-      env,
-      params,
-      { do: (_name, callback) => callback() },
-      request,
-    );
-    expect((await personal.run(params.runId)).status).toBe("published");
-    const result = await (
-      await call(env, "/personal/activity", await session(id))
-    ).json<{ snapshot: ActivitySnapshot }>();
-    expect(result.snapshot.totals).toMatchObject({
-      commits: 1,
-      additions: 12,
-      deletions: 3,
-    });
-    expect(result.snapshot.yearly).toHaveLength(365);
-    expect(JSON.stringify(result.snapshot)).not.toContain(
-      "history@example.invalid",
-    );
-    expect(put).not.toHaveBeenCalled();
-    expect(
-      await store.one(
-        "SELECT * FROM repository_sync_state WHERE repository_id=501",
-      ),
-    ).toBeNull();
-    expect(await personal.syncState(501)).toMatchObject({ head_sha: sha });
-    const calls = request.mock.calls.length;
-    await runCollection(
-      env,
-      { ...params, runId: "personal-reuse" },
-      { do: (_name, callback) => callback() },
-      request,
-    );
-    expect(request.mock.calls.length - calls).toBe(2);
-    expect((await personal.run("personal-reuse")).status).toBe("published");
-  });
+      expect((await personal.run(params.runId)).status).toBe("published");
+      const result = await (
+        await call(env, "/personal/activity", await session(id))
+      ).json<{ snapshot: ActivitySnapshot }>();
+      expect(result.snapshot.totals).toMatchObject({
+        commits: 1,
+        additions: 12,
+        deletions: 3,
+      });
+      expect(result.snapshot.yearly).toHaveLength(365);
+      expect(JSON.stringify(result.snapshot)).not.toContain(
+        "history@example.invalid",
+      );
+      expect(JSON.stringify(result.snapshot)).not.toContain("primary/private");
+      expect(JSON.stringify(result.snapshot)).not.toContain(
+        "oauth-private-token",
+      );
+      expect(put).not.toHaveBeenCalled();
+      expect(
+        await store.one(
+          "SELECT * FROM repository_sync_state WHERE repository_id=501",
+        ),
+      ).toBeNull();
+      expect(await personal.syncState(501)).toMatchObject({ head_sha: sha });
+      const calls = request.mock.calls.length;
+      expectedToken = "renewed-oauth-token";
+      await store
+        .statement(
+          "UPDATE personal_github SET credential=? WHERE user_id=?",
+          await encryptCredential(env, id, expectedToken),
+          id,
+        )
+        .run();
+      await runCollection(
+        oauthEnv,
+        { ...params, runId: "personal-reuse" },
+        { do: (_name, callback) => callback() },
+        request,
+      );
+      expect(request.mock.calls.length - calls).toBe(
+        repositoryMode === "explicit" ? 2 : 3,
+      );
+      expect((await personal.run("personal-reuse")).status).toBe("published");
+    },
+  );
 
   it("rebuilds the legacy config table without losing any references, runs, cache or public state", () => {
     const sqlite = new DatabaseSync(":memory:");

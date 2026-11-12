@@ -80,6 +80,20 @@ export async function decryptCredential(
   }
 }
 
+export async function githubCredential(env: Bindings, userId: string) {
+  const row = await database(env).one<{ credential: string }>(
+    "SELECT credential FROM personal_github WHERE user_id=?",
+    userId,
+  );
+  if (!row?.credential)
+    throw new PersonalError(
+      "github_connection_required",
+      "Connect GitHub before configuring or collecting activity.",
+      409,
+    );
+  return decryptCredential(env, userId, row.credential);
+}
+
 async function credentialKey(secret: string) {
   if (secret.length < 32)
     throw new PersonalError(

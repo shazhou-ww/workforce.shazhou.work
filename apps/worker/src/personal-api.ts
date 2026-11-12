@@ -31,18 +31,12 @@ import {
   type GitHubAccount,
   type GitHubRepository,
 } from "./collection-github.js";
-import {
-  createGitHubClient,
-  createOrganizationGitHubClient,
-  createOwnerGitHubClient,
-  createPublicGitHubClient,
-  GitHubError,
-} from "./github-client.js";
+import { createGitHubClient, GitHubError } from "./github-client.js";
 import {
   assertPersonalActive,
   database,
-  decryptCredential,
   githubConnection,
+  githubCredential,
   personalLimits,
   PersonalError,
   platformAccess,
@@ -268,7 +262,7 @@ personalApi.put("/personal/config", async (context) => {
       ...new Set([github.login.toLowerCase(), ...parsed.authorLogins]),
     ].sort(),
   };
-  await validateScope(context.env, config);
+  await validateScope(context.env, context.get("userId"), config);
   await assertPersonalActive(context.env, context.get("userId"));
   const revisionId = await context.get("store").saveConfig(config);
   return context.json<PersonalConfigResponse>({ config, revisionId, github });
@@ -377,7 +371,6 @@ export async function startPersonalCollection(
   if (
     !env.DB ||
     !env.COLLECTION ||
-    !env.GH_TOKEN?.trim() ||
     (env.COLLECTION_EMAIL_KEY?.length ?? 0) < 32
   )
     throw new PersonalError(
@@ -399,6 +392,7 @@ export async function startPersonalCollection(
     (env.COLLECTION_ENABLED !== "true" || !active.enabled)
   )
     return null;
+  await githubCredential(env, userId);
   const now = new Date(scheduledAt ?? Date.now()).toISOString();
   const runId = crypto.randomUUID();
   const revisionId = active.revisionId;
@@ -591,20 +585,6 @@ async function githubRequest<T>(
   return { data: await response.json<T>(), response };
 }
 
-async function credential(env: Bindings, userId: string) {
-  const row = await database(env).one<{ credential: string }>(
-    "SELECT credential FROM personal_github WHERE user_id=?",
-    userId,
-  );
-  if (!row?.credential)
-    throw new PersonalError(
-      "github_connection_required",
-      "Connect GitHub to discover your organizations.",
-      409,
-    );
-  return decryptCredential(env, userId, row.credential);
-}
-
 interface GitHubRepo {
   id: number;
   full_name: string;
@@ -634,7 +614,7 @@ personalApi.get("/personal/github/repository", async (context) => {
     publicRepo(
       (
         await githubRequest<GitHubRepo>(
-          await credential(context.env, context.get("userId")),
+          await githubCredential(context.env, context.get("userId")),
           `/repos/${name}`,
         )
       ).data,
@@ -645,7 +625,7 @@ personalApi.get("/personal/github/repository", async (context) => {
 personalApi.get("/personal/github", async (context) => {
   const userId = context.get("userId");
   const github = await githubConnection(context.env, userId);
-  const token = await credential(context.env, userId);
+  const token = await githubCredential(context.env, userId);
   const check = await githubRequest<{ id: number }>(token, "/user");
   if (String(check.data.id) !== github?.id)
     throw new PersonalError(
@@ -810,26 +790,18 @@ personalApi.get("/personal/github/authorize", async (context) => {
 
 async function validateScope(
   env: Bindings,
+  userId: string,
   config: ReturnType<typeof parseConfig>,
 ) {
-  if (!env.GH_TOKEN?.trim())
-    throw new PersonalError(
-      "collection_unavailable",
-      "Collection credentials are unavailable.",
-      503,
-    );
-  const client = createGitHubClient(env.GH_TOKEN);
-  const publicClient = createPublicGitHubClient();
+  const client = createGitHubClient(await githubCredential(env, userId));
   const store = database(env);
-  const repositoryClient = (name: string) =>
-    createOwnerGitHubClient(env, name.split("/")[0] ?? "");
   const excludedNames = new Set(config.excludeRepositories);
   const excludedIds = new Set<number>();
   for (const name of config.excludeRepositories)
     excludedIds.add(
       publicRepo(
         await validateGitHubRequest(() =>
-          repositoryClient(name).github<GitHubRepo>(`/repos/${name}`),
+          client.github<GitHubRepo>(`/repos/${name}`),
         ),
       ).id,
     );
@@ -854,15 +826,10 @@ async function validateScope(
         (await store.one<GitHubAccount>(
           "SELECT github_id AS id,login,account_type AS type FROM accounts WHERE login=? COLLATE NOCASE",
           login,
-        )) ??
-        (await validateGitHubRequest(() => readAccount(publicClient, login)));
-      const discoveryClient =
-        account.type === "Organization"
-          ? createOrganizationGitHubClient(env, account.login)
-          : client;
+        )) ?? (await validateGitHubRequest(() => readAccount(client, login)));
       for (let page = 1; page <= 11; page++) {
         const rows = await validateGitHubRequest(() =>
-          discoveryClient.github<(GitHubRepo & GitHubRepository)[]>(
+          client.github<(GitHubRepo & GitHubRepository)[]>(
             account.type === "Organization"
               ? `/orgs/${account.login}/repos?type=public&per_page=100&page=${page}`
               : `/users/${account.login}/repos?type=owner&per_page=100&page=${page}`,
@@ -888,7 +855,7 @@ async function validateScope(
   for (const name of config.includeRepositories)
     add(
       await validateGitHubRequest(() =>
-        repositoryClient(name).github<GitHubRepo>(`/repos/${name}`),
+        client.github<GitHubRepo>(`/repos/${name}`),
       ),
     );
 }
@@ -909,7 +876,7 @@ async function validateGitHubRequest<T>(
       if (error.status === 403)
         throw new PersonalError(
           "github_access_denied",
-          "GitHub denied collection access (organization policy, configured credential permissions, or rate limit). Saved selections are unchanged.",
+          "GitHub denied collection access (organization policy, OAuth permissions, or rate limit). Saved selections are unchanged.",
           403,
         );
       if (error.status === 404)
@@ -920,9 +887,9 @@ async function validateGitHubRequest<T>(
         );
       if (error.status === 401)
         throw new PersonalError(
-          "collection_unavailable",
-          "GitHub rejected the configured collection credential. Contact the administrator; saved selections are unchanged.",
-          503,
+          "github_connection_required",
+          "GitHub rejected your authorization. Reconnect GitHub; saved selections are unchanged.",
+          409,
         );
     }
     throw new PersonalError(

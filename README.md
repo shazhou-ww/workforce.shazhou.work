@@ -287,9 +287,13 @@ scopes remain available.
 
 Saving a personal scope uses the collector's public discovery rules: users and
 organizations are resolved separately, organization repositories come from the
-explicitly public directory, and configured owner credentials are reused.
-Authorization failures remain explicit rather than silently retrying with a
-different credential.
+explicitly public directory, and both validation and collection use the user's
+encrypted GitHub OAuth credential. Manual and scheduled personal collection do
+not require `GH_TOKEN` or owner-specific Worker secrets and never fall back to
+those credentials or anonymous requests. Missing or unreadable credentials
+require reconnecting GitHub; authorization failures remain explicit. Repository
+visibility checks still exclude private repositories even if OAuth can read
+them.
 
 GitHub access credentials are encrypted server-side in D1 with AES-GCM using a
 domain-separated HKDF key derived from `AUTH_SECRET`. Rotating that secret
@@ -408,23 +412,31 @@ Apply the pending D1 migrations before deploying code that records metrics:
 pnpm --filter @shazhou-work/workforce-worker exec wrangler d1 migrations apply DB --remote
 ```
 
-Account identities are reused from D1; a previously unknown account uses an
-explicitly public profile request without an Authorization header. Only login,
-account type and database ID are persisted. Public account identities can also
-be seeded by an authorized operator during configuration bootstrap. Users'
-public owned repository lists, commit GraphQL queries and comparisons use
-`GH_TOKEN`. Organizations are discovered through the explicitly public
-`/orgs/{org}/repos?type=public` directory. When an owner-specific
-`GH_TOKEN_<UPPERCASE_OWNER>` is configured, discovery uses that credential to
-avoid the anonymous IP quota; otherwise it retains anonymous discovery rather
-than using the personal token. The organization credential must authorize this
-endpoint as well as repository reads; an authorization failure is surfaced
-without silently retrying anonymously. A repository owner-ID mismatch fails
-explicitly rather than publishing an empty result for a reused account name.
-This avoids repeated anonymous profile requests. Unknown-account lookup and
-organization discovery without an override remain subject to GitHub's
-unauthenticated IP rate limit (60 requests/hour/IP). Workflows wait for the
-reset rather than silently skipping organizations or publishing partial results.
+Personal collection uses the run owner's encrypted OAuth credential for account
+lookup, public repository discovery, metadata, history and comparisons. Tokens
+are loaded inside the Worker, never placed in Workflow parameters or step
+outputs. Each Workflow invocation reads the current saved credential, including
+after a rate-limit wait. Public-only repository checks and author filters still
+apply.
+
+For legacy collection without a personal user ID, account identities are reused
+from D1; a previously unknown account uses an explicitly public profile request
+without an Authorization header. Only login, account type and database ID are
+persisted. Public account identities can also be seeded by an authorized
+operator during configuration bootstrap. Users' public owned repository lists,
+commit GraphQL queries and comparisons use `GH_TOKEN`. Organizations are
+discovered through the explicitly public `/orgs/{org}/repos?type=public`
+directory. When an owner-specific `GH_TOKEN_<UPPERCASE_OWNER>` is configured,
+discovery uses that credential to avoid the anonymous IP quota; otherwise it
+retains anonymous discovery rather than using the personal token. The
+organization credential must authorize this endpoint as well as repository
+reads; an authorization failure is surfaced without silently retrying
+anonymously. A repository owner-ID mismatch fails explicitly rather than
+publishing an empty result for a reused account name. This avoids repeated
+anonymous profile requests. Unknown-account lookup and organization discovery
+without an override remain subject to GitHub's unauthenticated IP rate limit (60
+requests/hour/IP). Workflows wait for the reset rather than silently skipping
+organizations or publishing partial results.
 
 Commit identity is `(repository_id, sha)`, not a global SHA. Each page
 atomically writes details, staged membership and its checkpoint. Only a
@@ -632,10 +644,11 @@ containing the public repositories to collect, and **Contents: Read-only**
 approval if required. Do not select private repositories or grant write/admin
 permissions.
 
-Keep the existing `GH_TOKEN` for personal repositories. Organization repository
-discovery, repository metadata, history, comparisons and commit details prefer
-the owner-specific Worker Secret `GH_TOKEN_<UPPERCASE_OWNER>`, replacing
-owner-name hyphens with underscores:
+These Worker tokens apply only to legacy collection, not personal workspaces.
+Keep the existing `GH_TOKEN` for legacy user-owned repositories. Organization
+repository discovery, repository metadata, history, comparisons and commit
+details prefer the owner-specific Worker Secret `GH_TOKEN_<UPPERCASE_OWNER>`,
+replacing owner-name hyphens with underscores:
 
 ```powershell
 pnpm --filter @shazhou-work/workforce-worker exec wrangler secret put GH_TOKEN_SILVERMOON_WORK
@@ -645,9 +658,9 @@ For `silvermoon-work`, select the now-public `task-engine` repository. Configure
 additional public repositories in that token when needed. Omit unused overrides;
 an explicitly empty override fails instead of silently falling back. Without an
 override, repository reads retain the existing `GH_TOKEN` behavior. Tokens never
-enter D1 configuration or public snapshots, and credential selection does not
-change the public-only collection policy or author filter. The optional offline
-`pnpm collect` command continues to use its single `GH_TOKEN`.
+enter D1 collection configuration or public snapshots, and credential selection
+does not change the public-only collection policy or author filter. The optional
+offline `pnpm collect` command continues to use its single `GH_TOKEN`.
 
 During this account's initial bootstrap, the two independent random collection
 secrets are backed up with Windows DPAPI encryption at
@@ -713,10 +726,11 @@ snapshots without this metadata remain explicitly labeled all-author.
    | `CLOUDFLARE_ACCOUNT_ID` | Deployment account ID                                      |
    | `CLOUDFLARE_API_TOKEN`  | Deployment only: Individual Workers → `workforce` → Editor |
 
-   Collection uses Worker bindings and the Worker `GH_TOKEN` secret, not a
-   Cloudflare API token. The legacy `CLOUDFLARE_KV_API_TOKEN` Actions secret is
-   no longer used by the checked-in offline workflow. Wrangler expects the
-   deployment token in `CLOUDFLARE_API_TOKEN`. See the current
+   Personal collection uses Worker bindings and the user's encrypted GitHub
+   OAuth credential; legacy collection uses the Worker `GH_TOKEN` secret.
+   Neither uses a Cloudflare API token. The legacy `CLOUDFLARE_KV_API_TOKEN`
+   Actions secret is no longer used by the checked-in offline workflow. Wrangler
+   expects the deployment token in `CLOUDFLARE_API_TOKEN`. See the current
    [Workers roles and permissions](https://developers.cloudflare.com/workers/authorization/workers/).
    Deploying with an existing KV binding does not require KV permissions.
    Routine releases need no Zone Read or Workers Routes Write permissions: they
@@ -773,8 +787,9 @@ snapshots without this metadata remain explicitly labeled all-author.
    switches and its cron are explicitly enabled.
 
 GitHub Actions' automatic token is used only by the optional offline collector.
-Cloudflare collection uses the independent Worker `GH_TOKEN` secret. Check
-failed runs instead of treating an old snapshot as current. Public repository
+Personal Cloudflare collection uses each user's saved GitHub OAuth credential;
+legacy collection uses the independent Worker `GH_TOKEN` secret. Check failed
+runs instead of treating an old snapshot as current. Public repository
 descriptions and commit subjects are intentionally exposed on the public
 dashboard; do not extend collection to private data without access control.
 

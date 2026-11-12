@@ -27,6 +27,7 @@ import type { CollectionPhase } from "@shazhou-work/workforce-contracts";
 import {
   assertPersonalActive,
   assertPersonalCollectionActive,
+  githubCredential,
 } from "./platform.js";
 
 export interface CollectionParams {
@@ -205,10 +206,19 @@ async function collect(
     await assertPersonalActive(env, params.userId);
     await store.config(params.revisionId);
   }
-  const client = createGitHubClient(env.GH_TOKEN ?? "", request);
+  const client = createGitHubClient(
+    params.userId
+      ? await githubCredential(env, params.userId)
+      : (env.GH_TOKEN ?? ""),
+    request,
+  );
   const clientForRepository = (name: string) =>
-    createOwnerGitHubClient(env, name.split("/")[0] ?? "", request);
-  const publicClient = createPublicGitHubClient(request);
+    params.userId
+      ? client
+      : createOwnerGitHubClient(env, name.split("/")[0] ?? "", request);
+  const publicClient = params.userId
+    ? client
+    : createPublicGitHubClient(request);
   const hashEmail = await createEmailHasher(env.COLLECTION_EMAIL_KEY ?? "");
   await steps.do("claim publication lock", async () => {
     await store.begin(
@@ -285,7 +295,7 @@ async function collect(
         throw new Error("Account discovery checkpoint is missing.");
       const account = JSON.parse(resolved.payload_json) as GitHubAccount;
       const repositoryClient =
-        account.type === "Organization"
+        !params.userId && account.type === "Organization"
           ? createOrganizationGitHubClient(env, account.login, request)
           : client;
       for (let page = 1; ; page += 1) {

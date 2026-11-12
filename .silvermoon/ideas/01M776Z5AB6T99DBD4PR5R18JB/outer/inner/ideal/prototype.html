@@ -1,0 +1,1518 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <title>Workforce · 邀请制个人统计 · 离线原型</title>
+    <style>
+      :root {
+        --blue: #2255d7;
+        --ink: #18243b;
+        --muted: #53627a;
+        --line: #dce3f2;
+        --page: #f4f7ff;
+        --amber: #805500;
+        font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+        color: var(--ink);
+        background: var(--page);
+        font-synthesis: none;
+        font-variant-numeric: tabular-nums;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-width: 320px;
+      }
+      [hidden] {
+        display: none !important;
+      }
+      button,
+      input,
+      select,
+      textarea {
+        font: inherit;
+      }
+      button,
+      select,
+      input[type="checkbox"],
+      input[type="radio"] {
+        cursor: pointer;
+      }
+      button,
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 42px;
+        padding: 9px 16px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        color: var(--ink);
+        background: white;
+        font-weight: 600;
+        text-decoration: none;
+        gap: 8px;
+      }
+      button:hover {
+        border-color: var(--blue);
+      }
+      button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+      .primary {
+        background: var(--blue);
+        color: white;
+        border-color: var(--blue);
+      }
+      .danger {
+        color: #a32134;
+      }
+      :focus-visible {
+        outline: 3px solid var(--blue);
+        outline-offset: 3px;
+      }
+      input:not([type="checkbox"]):not([type="radio"]),
+      select,
+      textarea {
+        width: 100%;
+        padding: 10px 12px;
+        color: var(--ink);
+        background: white;
+        border: 1px solid #aebcd5;
+        border-radius: 6px;
+        min-height: 44px;
+      }
+      textarea {
+        resize: vertical;
+        line-height: 1.65;
+      }
+      label {
+        display: block;
+        font-size: 14px;
+        font-weight: 600;
+        margin-bottom: 8px;
+      }
+      input[type="checkbox"],
+      input[type="radio"] {
+        accent-color: var(--blue);
+        width: 17px;
+        height: 17px;
+      }
+      h1 {
+        font-size: clamp(26px, 3vw, 34px);
+        letter-spacing: -0.8px;
+        margin: 0 0 10px;
+        font-weight: 650;
+      }
+      h2 {
+        font-size: 19px;
+        margin: 0 0 10px;
+        font-weight: 650;
+      }
+      h3 {
+        font-size: 15px;
+        margin: 0 0 8px;
+      }
+      p {
+        line-height: 1.8;
+        margin: 0 0 14px;
+      }
+      small,
+      .muted,
+      .help {
+        color: var(--muted);
+      }
+      .help {
+        font-size: 13px;
+        margin: 7px 0 0;
+        line-height: 1.75;
+      }
+      .demo-bar {
+        background: #e7edfc;
+        border-bottom: 1px solid #c7d4f4;
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 12px;
+        padding: 12px 28px;
+        font-size: 13px;
+      }
+      .demo-bar strong {
+        color: #244797;
+      }
+      .demo-bar label {
+        margin: 0;
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        font-size: 13px;
+      }
+      .demo-bar select {
+        width: auto;
+        min-height: 34px;
+        padding: 5px 28px 5px 9px;
+        font-size: 13px;
+      }
+      .demo-note {
+        margin-left: auto;
+        color: #3e5074;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 22px 32px;
+        border-bottom: 1px solid var(--line);
+        background: white;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-size: 21px;
+        font-weight: 700;
+      }
+      .brand-mark {
+        width: 27px;
+        height: 27px;
+        display: flex;
+        gap: 4px;
+        align-items: end;
+      }
+      .brand-mark i {
+        width: 6px;
+        background: var(--blue);
+        border-radius: 2px;
+        height: 16px;
+      }
+      .brand-mark i:nth-child(2) {
+        height: 27px;
+      }
+      .brand-mark i:nth-child(3) {
+        height: 21px;
+      }
+      .identity {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 10px;
+        font-size: 13px;
+      }
+      .badge {
+        display: inline-block;
+        font-size: 12px;
+        background: #edf2ff;
+        color: #2148a1;
+        padding: 4px 9px;
+        border-radius: 5px;
+        white-space: nowrap;
+      }
+      .badge.pending {
+        color: var(--amber);
+        background: #fff3d4;
+      }
+      .badge.off {
+        color: #72424b;
+        background: #f8eaed;
+      }
+      .shell {
+        max-width: 1440px;
+        margin: auto;
+        display: grid;
+        grid-template-columns: 208px minmax(0, 1fr);
+        min-height: calc(100vh - 150px);
+      }
+      aside.navigation {
+        padding: 30px 18px;
+        border-right: 1px solid var(--line);
+      }
+      nav {
+        display: grid;
+        gap: 7px;
+      }
+      nav button {
+        justify-content: start;
+        border: 0;
+        background: transparent;
+        font-size: 14px;
+        text-align: left;
+      }
+      nav button[aria-current="page"] {
+        color: var(--blue);
+        background: #e5ecff;
+      }
+      .nav-foot {
+        margin: 32px 12px;
+        font-size: 12px;
+        line-height: 1.9;
+        color: var(--muted);
+      }
+      main {
+        min-width: 0;
+        padding: 38px 40px 60px;
+      }
+      .page-heading {
+        display: flex;
+        align-items: start;
+        justify-content: space-between;
+        gap: 20px;
+        margin-bottom: 26px;
+      }
+      .page-heading p {
+        color: var(--muted);
+        margin: 0;
+        font-size: 14px;
+      }
+      .columns {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 260px;
+        gap: 28px;
+        align-items: start;
+      }
+      .sheet {
+        background: white;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        overflow: hidden;
+      }
+      .form-section {
+        padding: 28px;
+        border-bottom: 1px solid var(--line);
+      }
+      .form-section:last-child {
+        border-bottom: 0;
+      }
+      .section-intro {
+        color: var(--muted);
+        font-size: 14px;
+        margin-bottom: 23px;
+      }
+      .field {
+        margin-top: 21px;
+      }
+      .field:first-child {
+        margin-top: 0;
+      }
+      .optional {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 400;
+        margin-left: 6px;
+      }
+      .choice {
+        display: flex;
+        align-items: start;
+        gap: 10px;
+        margin: 13px 0;
+        font-size: 14px;
+        font-weight: 400;
+        line-height: 1.7;
+      }
+      .choice input {
+        flex-shrink: 0;
+        margin-top: 4px;
+      }
+      .preview {
+        border-top: 3px solid var(--blue);
+        padding: 19px 0;
+      }
+      .preview dl {
+        margin: 24px 0;
+      }
+      .preview dt {
+        color: var(--muted);
+        font-size: 12px;
+        margin-top: 20px;
+      }
+      .preview dd {
+        margin: 7px 0 0;
+        font-size: 14px;
+        line-height: 1.8;
+        overflow-wrap: anywhere;
+      }
+      .preview .rule {
+        font-size: 13px;
+        padding: 16px 0;
+        border-top: 1px solid var(--line);
+      }
+      .form-footer {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        align-items: center;
+        padding: 22px 28px;
+        flex-wrap: wrap;
+      }
+      .notice {
+        padding: 14px 18px;
+        border-left: 3px solid var(--blue);
+        background: #eaf0ff;
+        font-size: 14px;
+        line-height: 1.8;
+        margin-bottom: 22px;
+      }
+      .notice.warning {
+        background: #fff5dd;
+        border-color: #b17a00;
+        color: #684500;
+      }
+      .notice.error {
+        background: #fff0f2;
+        border-color: #b72941;
+        color: #8e2133;
+      }
+      .status {
+        min-height: 26px;
+        margin: 14px 0 0;
+        color: #2046a1;
+        font-size: 14px;
+        line-height: 1.8;
+      }
+      .status.error-text {
+        color: #a32134;
+      }
+      .metrics {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        padding: 26px 0;
+        border-block: 1px solid var(--line);
+        margin-bottom: 28px;
+        gap: 16px;
+      }
+      .metric span {
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .metric strong {
+        display: block;
+        margin-top: 8px;
+        font-size: clamp(24px, 3vw, 36px);
+        font-weight: 600;
+      }
+      .chart {
+        background: white;
+        padding: 26px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+      }
+      .bars {
+        height: 150px;
+        display: flex;
+        align-items: end;
+        gap: 7px;
+        margin: 28px 0 12px;
+        border-bottom: 1px solid #a8b8da;
+      }
+      .bars span {
+        background: #8aa7ef;
+        flex: 1;
+        min-width: 2px;
+        border-radius: 3px 3px 0 0;
+      }
+      .chart-axis {
+        display: flex;
+        justify-content: space-between;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .table-wrap {
+        overflow-x: auto;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        background: white;
+        text-align: left;
+        font-size: 14px;
+      }
+      th {
+        font-size: 12px;
+        color: var(--muted);
+        font-weight: 500;
+        background: #f8faff;
+      }
+      th,
+      td {
+        padding: 17px 20px;
+        border-bottom: 1px solid var(--line);
+      }
+      td:last-child {
+        white-space: nowrap;
+      }
+      td button {
+        min-height: 34px;
+        font-size: 13px;
+        padding: 5px 12px;
+      }
+      caption {
+        text-align: left;
+        padding: 20px;
+        font-weight: 600;
+      }
+      .invite-form {
+        display: flex;
+        gap: 12px;
+        align-items: end;
+      }
+      .invite-form .field {
+        flex: 1;
+        margin: 0;
+      }
+      .invite-form button {
+        flex-shrink: 0;
+        min-height: 44px;
+      }
+      .admin-summary {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 24px;
+        padding: 20px 0;
+        font-size: 14px;
+      }
+      .admin-summary strong {
+        color: var(--blue);
+      }
+      .empty {
+        max-width: 570px;
+        padding: 55px 0;
+      }
+      .empty-icon {
+        width: 52px;
+        height: 52px;
+        background: #e5ecff;
+        color: var(--blue);
+        display: grid;
+        place-items: center;
+        font-size: 25px;
+        border-radius: 12px;
+        margin-bottom: 26px;
+      }
+      .empty p {
+        color: var(--muted);
+      }
+      .actions {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-top: 24px;
+      }
+      .plain-list {
+        color: var(--muted);
+        font-size: 14px;
+        padding-left: 20px;
+        line-height: 2;
+      }
+      .public-placeholder {
+        padding: 30px;
+        border: 1px dashed #9baed9;
+        background: white;
+        margin-top: 28px;
+        border-radius: 10px;
+      }
+      progress {
+        width: 100%;
+        height: 12px;
+        margin: 12px 0;
+        accent-color: var(--blue);
+      }
+      dialog {
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 28px;
+        width: min(460px, calc(100% - 32px));
+        color: var(--ink);
+      }
+      dialog::backdrop {
+        background: #18243b66;
+      }
+      dialog p {
+        overflow-wrap: anywhere;
+      }
+      .dialog-actions {
+        display: flex;
+        justify-content: end;
+        gap: 10px;
+        margin-top: 24px;
+      }
+      footer {
+        color: var(--muted);
+        font-size: 12px;
+        padding-top: 32px;
+        line-height: 1.9;
+      }
+      @media (max-width: 1100px) {
+        main {
+          padding: 30px 24px;
+        }
+        .columns {
+          grid-template-columns: minmax(0, 1fr);
+        }
+        .preview {
+          padding: 20px;
+          background: #eaf0ff;
+        }
+      }
+      @media (max-width: 720px) {
+        .demo-bar {
+          padding: 12px 16px;
+          gap: 10px;
+        }
+        .demo-note {
+          margin-left: 0;
+          width: 100%;
+        }
+        header {
+          padding: 18px 16px;
+          align-items: start;
+          flex-wrap: wrap;
+        }
+        .shell {
+          display: block;
+        }
+        aside.navigation {
+          border-right: 0;
+          border-bottom: 1px solid var(--line);
+          padding: 12px;
+        }
+        nav {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 4px;
+        }
+        nav button {
+          padding: 8px 11px;
+          font-size: 13px;
+        }
+        .nav-foot {
+          display: none;
+        }
+        main {
+          padding: 26px 16px;
+        }
+        .page-heading {
+          flex-wrap: wrap;
+        }
+        .form-section {
+          padding: 22px 18px;
+        }
+        .form-footer {
+          padding: 20px 18px;
+        }
+        .invite-form {
+          flex-wrap: wrap;
+        }
+        .invite-form .field {
+          flex-basis: 100%;
+        }
+        .metric strong {
+          font-size: 25px;
+        }
+        .metric span {
+          font-size: 12px;
+        }
+        .chart {
+          padding: 18px;
+        }
+        .empty {
+          padding: 28px 0;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="demo-bar" aria-label="原型评审工具">
+      <strong>离线 UX 原型</strong>
+      <label for="scene"
+        >原型场景
+        <select id="scene">
+          <option value="member">已授权用户</option>
+          <option value="admin">管理员</option>
+          <option value="public">未登录主页</option>
+          <option value="uninvited">未获邀</option>
+          <option value="verify">邮箱待验证</option>
+          <option value="suspended">已停用</option>
+        </select>
+      </label>
+      <label for="data-scene" id="data-scene-label"
+        >统计状态
+        <select id="data-scene">
+          <option value="existing">已有结果</option>
+          <option value="first">首次使用</option>
+          <option value="failed">采集失败</option>
+          <option value="quota">配额不足</option>
+        </select>
+      </label>
+      <span class="demo-note">虚构数据 · 不联网 · 不保存 · 刷新重置</span>
+    </div>
+    <header>
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span
+        >Workforce
+      </div>
+      <div class="identity">
+        <span id="identity">demo-coder</span
+        ><span class="badge" id="role">仅本人可见</span>
+      </div>
+    </header>
+    <div class="shell">
+      <aside class="navigation">
+        <nav aria-label="主导航">
+          <button type="button" data-view="home">平台主页</button>
+          <button type="button" data-view="dashboard" data-member>
+            我的统计
+          </button>
+          <button
+            type="button"
+            data-view="config"
+            data-member
+            aria-current="page"
+          >
+            个人配置
+          </button>
+          <button type="button" data-view="admin" id="admin-nav" hidden>
+            用户管理
+          </button>
+        </nav>
+        <div class="nav-foot">
+          只检查自己的代码活动。<br />不排名，不比较。<br /><br />北京时间<br />公开仓库
+          / 默认分支
+        </div>
+      </aside>
+      <main>
+        <noscript
+          ><p class="notice warning">
+            启用 JavaScript 后可切换场景和体验模拟操作。文件无需联网。
+          </p></noscript
+        >
+        <section id="home" hidden>
+          <div class="page-heading">
+            <div>
+              <h1 tabindex="-1">代码活动，各自查看。</h1>
+              <p>沿用同一套统计方法，保留每个人自己的范围与结果。</p>
+            </div>
+          </div>
+          <div class="notice">
+            个人空间采用邀请制。登录不代表获得使用资格，需匹配管理员授权的已验证邮箱。
+          </div>
+          <div class="actions">
+            <button type="button" class="primary" id="enter-personal">
+              进入我的统计
+            </button>
+            <button type="button" id="public-preview">
+              查看现有公开看板说明
+            </button>
+          </div>
+          <div class="public-placeholder" id="public-description" hidden>
+            <h2>现有公开看板保留</h2>
+            <p>
+              这里在正式产品中继续展示目前的公开统计，不会被新用户的个人结果覆盖。此原型不加载线上数据，也不重绘原有完整图表。
+            </p>
+          </div>
+          <ul class="plain-list">
+            <li>每人一份作者与仓库配置。</li>
+            <li>个人统计默认只有本人可以访问。</li>
+            <li>没有排行榜，也不做跨用户聚合。</li>
+          </ul>
+        </section>
+
+        <section id="config">
+          <div class="page-heading">
+            <div>
+              <h1 tabindex="-1">个人配置</h1>
+              <p>告诉 Workforce 哪些提交属于你，以及去哪些公开仓库里找。</p>
+            </div>
+            <span class="badge">仅本人可见</span>
+          </div>
+          <div class="columns">
+            <form id="config-form" novalidate>
+              <div class="sheet">
+                <section class="form-section" aria-labelledby="author-heading">
+                  <h2 id="author-heading">识别谁的提交</h2>
+                  <p class="section-intro">
+                    主作者账号或邮箱匹配任意一项，就计入。不是要求两项同时匹配。
+                  </p>
+                  <div class="field">
+                    <label for="author-logins">GitHub 作者账号</label
+                    ><textarea
+                      id="author-logins"
+                      rows="2"
+                      spellcheck="false"
+                      aria-describedby="author-help"
+                    >
+demo-coder</textarea>
+                    <p class="help" id="author-help">
+                      一行一个。默认本人账号，也可补充自己曾用的其他账号。
+                    </p>
+                  </div>
+                  <div class="field">
+                    <label for="author-emails"
+                      >用于识别本人提交的邮箱<span class="optional"
+                        >可选</span
+                      ></label
+                    ><textarea
+                      id="author-emails"
+                      rows="3"
+                      spellcheck="false"
+                      aria-describedby="email-help"
+                    >
+demo@example.invalid
+12345+demo-coder@users.noreply.github.com</textarea>
+                    <p class="help" id="email-help">
+                      一行一个，支持历史邮箱。这些邮箱用于纳入提交，不用于领取邀请或登录。
+                    </p>
+                  </div>
+                </section>
+                <section
+                  class="form-section"
+                  aria-labelledby="repository-heading"
+                >
+                  <h2 id="repository-heading">去哪里找提交</h2>
+                  <p class="section-intro">
+                    扫描组织仓库时，仍然只统计上面匹配到的作者。
+                  </p>
+                  <fieldset style="border: 0; padding: 0; margin: 0">
+                    <legend style="font-size: 14px; font-weight: 600">
+                      仓库范围
+                    </legend>
+                    <label class="choice"
+                      ><input
+                        type="radio"
+                        name="repository-mode"
+                        value="all_owned_public"
+                        checked
+                      />账号名下公开仓库，也可补充指定仓库</label
+                    >
+                    <label class="choice"
+                      ><input
+                        type="radio"
+                        name="repository-mode"
+                        value="explicit"
+                      />仅指定公开仓库</label
+                    >
+                  </fieldset>
+                  <div class="field" id="accounts-field">
+                    <label for="accounts">扫描的个人账号或组织</label
+                    ><textarea id="accounts" rows="2" spellcheck="false">
+demo-coder
+sample-studio</textarea>
+                  </div>
+                  <div class="field">
+                    <label for="includes"
+                      >指定纳入的仓库<span
+                        class="optional"
+                        id="include-optional"
+                        >可选</span
+                      ></label
+                    ><textarea
+                      id="includes"
+                      rows="2"
+                      spellcheck="false"
+                      placeholder="owner/repository"
+                    >
+example-tools/parser</textarea>
+                    <p class="help">
+                      一行一个 owner/name，可统计自己在其他仓库里的贡献。
+                    </p>
+                  </div>
+                  <div class="field">
+                    <label for="excludes"
+                      >排除的仓库<span class="optional">可选</span></label
+                    ><textarea id="excludes" rows="2" spellcheck="false">
+demo-coder/sandbox</textarea>
+                    <p class="help">排除始终优先，即使仓库也在纳入列表中。</p>
+                  </div>
+                </section>
+                <section class="form-section" aria-labelledby="update-heading">
+                  <h2 id="update-heading">自动更新</h2>
+                  <label class="choice"
+                    ><input type="checkbox" id="enabled" checked /><span
+                      >启用自动更新<br /><span class="help"
+                        >按平台安排更新；暂停后保留已有结果，仍可按限制手动刷新。</span
+                      ></span
+                    ></label
+                  >
+                  <p class="help">
+                    示例策略：每小时更新，手动刷新至少间隔 15
+                    分钟。实际参数由平台统一控制。
+                  </p>
+                </section>
+                <div class="form-footer">
+                  <span class="help">邮箱和配置不会公开。</span
+                  ><button type="submit" class="primary">保存个人配置</button>
+                </div>
+              </div>
+              <p
+                id="config-feedback"
+                class="status"
+                role="status"
+                aria-live="polite"
+              ></p>
+            </form>
+            <aside class="preview" aria-label="当前表单统计范围">
+              <h2>统计范围</h2>
+              <p class="help">随表单变化的草稿摘要，不是已采集数据。</p>
+              <dl>
+                <dt>匹配的作者</dt>
+                <dd id="preview-author"></dd>
+                <dt>查找范围</dt>
+                <dd id="preview-repos"></dd>
+                <dt>更新安排</dt>
+                <dd id="preview-enabled"></dd>
+              </dl>
+              <p class="rule">
+                只看默认分支的主作者。<br />新增 + 删除 = 变化行数。<br />30
+                天统计 / 365 天热力图。<br />统一按北京时间。
+              </p>
+              <p class="help">
+                平台配额示例：最多 50
+                个仓库，包含组织展开后的实际数量；此页离线无法发现仓库或核验可访问性。
+              </p>
+            </aside>
+          </div>
+        </section>
+
+        <section id="dashboard" hidden>
+          <div class="page-heading">
+            <div>
+              <h1 tabindex="-1">我的统计</h1>
+              <p>demo-coder 的个人空间，不含其他用户的统计结果。</p>
+            </div>
+            <button type="button" class="primary" id="refresh">立即刷新</button>
+          </div>
+          <div id="dashboard-notice" class="notice" role="status"></div>
+          <div id="collection-progress" class="sheet form-section" hidden>
+            <h2>正在模拟采集</h2>
+            <p>示例进度：已处理 12 / 21 个公开仓库。不会启动真实任务。</p>
+            <progress value="12" max="21" aria-label="模拟采集进度"></progress
+            ><button type="button" id="finish-collection">
+              演示：完成采集
+            </button>
+          </div>
+          <div id="dashboard-empty" class="empty" hidden>
+            <div class="empty-icon" aria-hidden="true">＋</div>
+            <h2 id="empty-title">先配置你的统计范围</h2>
+            <p id="empty-description">
+              保存作者身份和仓库范围后，才能开始首次采集。没有结果时不展示虚构零值。
+            </p>
+            <button type="button" data-view="config">去配置</button>
+          </div>
+          <div id="dashboard-results">
+            <div class="metrics">
+              <div class="metric">
+                <span>30 天提交</span><strong>184</strong>
+              </div>
+              <div class="metric">
+                <span>新增 + 删除</span><strong>28,460</strong>
+              </div>
+              <div class="metric"><span>涉及项目</span><strong>12</strong></div>
+            </div>
+            <div class="chart">
+              <h2>最近 30 天</h2>
+              <p class="help">
+                虚构提交样本，仅展示个人空间衔接；正式产品沿用现有完整图表和年度热力图。
+              </p>
+              <div class="bars" id="bars" aria-hidden="true"></div>
+              <div class="chart-axis">
+                <span>10 月 14 日</span><span>11 月 12 日</span>
+              </div>
+            </div>
+            <div class="sheet" style="margin-top: 24px">
+              <div
+                class="table-wrap"
+                tabindex="0"
+                role="region"
+                aria-label="示例仓库统计"
+              >
+                <table>
+                  <caption>
+                    项目明细 · 虚构样本
+                  </caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">仓库</th>
+                      <th scope="col">提交</th>
+                      <th scope="col">新增 + 删除</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>demo-coder/workbench</td>
+                      <td>86</td>
+                      <td>14,280</td>
+                    </tr>
+                    <tr>
+                      <td>sample-studio/website</td>
+                      <td>54</td>
+                      <td>9,340</td>
+                    </tr>
+                    <tr>
+                      <td>其余 10 个项目</td>
+                      <td>44</td>
+                      <td>4,840</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+          <p
+            class="status"
+            id="refresh-feedback"
+            role="status"
+            aria-live="polite"
+          ></p>
+          <button type="button" id="reset-cooldown" hidden>
+            演示：解除刷新冷却
+          </button>
+        </section>
+
+        <section id="admin" hidden>
+          <div class="page-heading">
+            <div>
+              <h1 tabindex="-1">用户管理</h1>
+              <p>按邮箱邀请使用者。只管理使用资格，不查看他人的个人统计。</p>
+            </div>
+            <span class="badge">管理员</span>
+          </div>
+          <div class="sheet form-section">
+            <h2>添加邀请</h2>
+            <p class="section-intro">
+              对方使用相同的已验证邮箱登录后领取资格。添加记录不代表已发送邮件。
+            </p>
+            <form id="invite-form" class="invite-form" novalidate>
+              <div class="field">
+                <label for="invite-email">邀请邮箱</label
+                ><input
+                  id="invite-email"
+                  type="email"
+                  placeholder="person@example.invalid"
+                  autocomplete="off"
+                  required
+                  aria-describedby="invite-feedback"
+                />
+              </div>
+              <button type="submit" class="primary">添加邀请</button>
+            </form>
+            <p
+              class="status"
+              id="invite-feedback"
+              role="status"
+              aria-live="polite"
+            ></p>
+          </div>
+          <div class="admin-summary" id="admin-summary"></div>
+          <div
+            class="sheet table-wrap"
+            tabindex="0"
+            role="region"
+            aria-label="邀请与用户列表"
+          >
+            <table>
+              <caption>
+                邀请与用户
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">授权邮箱</th>
+                  <th scope="col">状态</th>
+                  <th scope="col">操作</th>
+                </tr>
+              </thead>
+              <tbody id="users"></tbody>
+            </table>
+          </div>
+          <div class="notice" style="margin-top: 24px">
+            初始管理员由部署后台的 GitHub 稳定 ID
+            指定。此处不能新增管理员，也不能停用自己的管理员身份。
+          </div>
+          <p class="help">
+            资源策略示例：每人最多 50
+            个仓库；首次历史采集与全局并发另受平台预算限制。邀请制不等于无限资源。
+          </p>
+        </section>
+
+        <section id="restricted" hidden>
+          <div class="empty">
+            <div class="empty-icon" aria-hidden="true">◇</div>
+            <h1 id="restricted-title" tabindex="-1"></h1>
+            <p id="restricted-description"></p>
+            <div class="notice" id="restricted-detail"></div>
+            <div class="actions">
+              <button type="button" id="verify-email" class="primary" hidden>
+                开始验证邮箱</button
+              ><button type="button" data-view="home">返回平台主页</button>
+            </div>
+            <p
+              class="status"
+              id="verify-feedback"
+              role="status"
+              aria-live="polite"
+            ></p>
+          </div>
+        </section>
+        <footer>
+          离线设计样稿，不是已上线功能。配额数值仅为演示，所有操作在刷新后重置。<br />代码活动不代表生产力或代码质量。
+        </footer>
+      </main>
+    </div>
+    <dialog
+      id="confirmation"
+      aria-labelledby="confirmation-title"
+      aria-describedby="confirmation-description"
+    >
+      <h2 id="confirmation-title"></h2>
+      <p id="confirmation-description"></p>
+      <div class="dialog-actions">
+        <button type="button" id="cancel-confirmation" autofocus>取消</button
+        ><button type="button" class="danger" id="confirm-action">确认</button>
+      </div>
+    </dialog>
+    <script>
+      const byId = (id) => document.getElementById(id);
+      const state = {
+        scene: "member",
+        dataScene: "existing",
+        view: "config",
+        hasConfig: true,
+        hasResult: true,
+        changed: false,
+        collecting: false,
+        cooldown: false,
+        revision: 1,
+        automatic: true,
+        pendingAction: null,
+        users: [
+          { email: "owner@example.invalid", status: "admin" },
+          { email: "member@example.invalid", status: "active" },
+          { email: "newcomer@example.invalid", status: "pending" },
+          { email: "paused@example.invalid", status: "suspended" },
+        ],
+      };
+      const labels = {
+        admin: "管理员",
+        active: "正常使用",
+        pending: "待领取",
+        suspended: "已停用",
+        revoked: "已撤销",
+      };
+      const lines = (id) => [
+        ...new Set(
+          byId(id)
+            .value.split(/\r?\n/)
+            .map((value) => value.trim().toLowerCase())
+            .filter(Boolean),
+        ),
+      ];
+      const mode = () =>
+        document.querySelector('input[name="repository-mode"]:checked').value;
+      const member = () => ["member", "admin"].includes(state.scene);
+      function feedback(id, message, error = false) {
+        byId(id).textContent = message;
+        byId(id).classList.toggle("error-text", error);
+      }
+      function showView(requested, focus = true) {
+        const view =
+          requested === "admin" && state.scene !== "admin"
+            ? member()
+              ? "dashboard"
+              : "restricted"
+            : ["dashboard", "config"].includes(requested) && !member()
+              ? state.scene === "public"
+                ? "home"
+                : "restricted"
+              : requested;
+        state.view = view;
+        for (const id of ["home", "config", "dashboard", "admin", "restricted"])
+          byId(id).hidden = id !== view;
+        document.querySelectorAll("nav [data-view]").forEach((button) => {
+          if (button.dataset.view === view)
+            button.setAttribute("aria-current", "page");
+          else button.removeAttribute("aria-current");
+        });
+        if (view === "dashboard") renderDashboard();
+        if (view === "admin") renderUsers();
+        if (focus) document.querySelector(`#${view} h1`).focus();
+      }
+      function renderScene() {
+        const restricted = {
+          uninvited: [
+            "当前账号尚未获邀",
+            "你已登录，但还没有平台使用资格。",
+            "请联系管理员，将你的已验证登录邮箱加入邀请名单。此状态不会创建采集任务或个人统计。",
+          ],
+          verify: [
+            "先验证邀请邮箱",
+            "当前登录身份没有提供可用于领取邀请的已验证邮箱。",
+            "输入一个邮箱并不能证明它属于你。需取得可信邮箱证明后，才能检查是否受邀；不会使用统计邮箱代替验证。",
+          ],
+          suspended: [
+            "你的使用资格已停用",
+            "个人统计服务已暂停，请联系管理员核实。",
+            "现有登录会话也不能继续访问个人 API。后续自动任务停止，在途任务在安全检查点停止且不再发布新结果。",
+          ],
+        };
+        byId("identity").textContent =
+          state.scene === "public"
+            ? "未登录"
+            : state.scene === "admin"
+              ? "平台管理员（示例）"
+              : "demo-coder（示例）";
+        byId("role").textContent =
+          state.scene === "admin"
+            ? "管理员"
+            : member()
+              ? "仅本人可见"
+              : state.scene === "public"
+                ? "邀请制"
+                : "访问受限";
+        document
+          .querySelectorAll("[data-member]")
+          .forEach((button) => (button.hidden = !member()));
+        byId("admin-nav").hidden = state.scene !== "admin";
+        byId("data-scene-label").hidden = !member();
+        byId("enter-personal").textContent =
+          state.scene === "public"
+            ? "登录并检查邀请"
+            : member()
+              ? "进入我的统计"
+              : "查看当前访问状态";
+        byId("verify-email").hidden = state.scene !== "verify";
+        feedback("verify-feedback", "");
+        if (restricted[state.scene]) {
+          const [title, description, detail] = restricted[state.scene];
+          byId("restricted-title").textContent = title;
+          byId("restricted-description").textContent = description;
+          byId("restricted-detail").textContent = detail;
+        }
+        showView(
+          state.scene === "public"
+            ? "home"
+            : state.scene === "admin"
+              ? "admin"
+              : member()
+                ? "config"
+                : "restricted",
+        );
+      }
+      function preview() {
+        const explicit = mode() === "explicit";
+        byId("accounts-field").hidden = explicit;
+        byId("include-optional").hidden = explicit;
+        const logins = lines("author-logins");
+        const emails = lines("author-emails");
+        byId("preview-author").textContent =
+          `${logins.join("、") || "未填作者账号"}；${emails.length} 个匹配邮箱。账号或邮箱命中即可。`;
+        byId("preview-repos").textContent =
+          `${explicit ? "仅指定仓库" : `扫描 ${lines("accounts").length} 个账号或组织`}，纳入 ${lines("includes").length} 个指定仓库，排除 ${lines("excludes").length} 个仓库。`;
+        byId("preview-enabled").textContent = byId("enabled").checked
+          ? "启用平台安排的自动更新"
+          : "暂停自动更新，保留已有结果";
+      }
+      function renderDashboard() {
+        byId("dashboard-empty").hidden = state.hasResult;
+        byId("dashboard-results").hidden = !state.hasResult;
+        byId("collection-progress").hidden = !state.collecting;
+        byId("refresh").disabled =
+          !state.hasConfig || state.collecting || state.cooldown;
+        byId("refresh").textContent = state.collecting
+          ? "采集中"
+          : state.cooldown
+            ? "刷新冷却中"
+            : "立即刷新";
+        byId("reset-cooldown").hidden = !state.cooldown || state.collecting;
+        byId("empty-title").textContent = state.hasConfig
+          ? "配置已保存，等待首次采集"
+          : "先配置你的统计范围";
+        byId("empty-description").textContent = state.hasConfig
+          ? "可以立即刷新，或等待平台安排。首次历史采集可能较久，完成前不展示假零值。"
+          : "保存作者身份和仓库范围后，才能开始首次采集。没有结果时不展示虚构零值。";
+        const notice = byId("dashboard-notice");
+        notice.className = "notice";
+        if (state.collecting)
+          notice.textContent =
+            "正在模拟采集当前配置。新结果完整发布前，保留上次快照。";
+        else if (state.dataScene === "failed") {
+          notice.classList.add("error");
+          notice.textContent =
+            "上次采集失败：示例仓库访问被拒绝。保留上次完整结果；请检查仓库范围后重试，不会跳过错误仓库伪装成功。";
+        } else if (state.dataScene === "quota") {
+          notice.classList.add("warning");
+          notice.textContent =
+            "范围展开后为 63 个仓库，超过示例上限 50。请缩小范围；旧结果保留，不发布截断后的统计。";
+        } else if (state.changed)
+          notice.textContent = `配置 v${state.revision} 已保存；当前${state.hasResult ? "结果来自上一配置，" : "尚无结果，"}请等待或启动新采集。`;
+        else
+          notice.textContent = state.hasResult
+            ? `示例快照：11 月 12 日 14:17，北京时间。${state.automatic ? "自动更新已启用。" : "自动更新已暂停，已有结果保留。"}所有数字均为虚构。`
+            : "首次使用尚无统计结果。先保存配置，再开始采集。";
+      }
+      function renderUsers() {
+        const tbody = byId("users");
+        tbody.replaceChildren();
+        state.users.forEach((user, index) => {
+          const row = document.createElement("tr");
+          const email = document.createElement("td");
+          email.textContent = user.email;
+          const status = document.createElement("td");
+          const badge = document.createElement("span");
+          badge.className = `badge ${user.status === "pending" ? "pending" : ["suspended", "revoked"].includes(user.status) ? "off" : ""}`;
+          badge.textContent = labels[user.status];
+          status.append(badge);
+          const action = document.createElement("td");
+          if (user.status === "admin") action.textContent = "部署后台管理";
+          else {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.textContent = {
+              pending: "撤销邀请",
+              active: "停用",
+              suspended: "恢复资格",
+              revoked: "重新邀请",
+            }[user.status];
+            if (["pending", "active"].includes(user.status))
+              button.className = "danger";
+            button.setAttribute(
+              "aria-label",
+              `${button.textContent} ${user.email}`,
+            );
+            button.addEventListener("click", () => changeUser(index));
+            action.append(button);
+          }
+          row.append(email, status, action);
+          tbody.append(row);
+        });
+        const count = (status) =>
+          state.users.filter((user) => user.status === status).length;
+        byId("admin-summary").textContent =
+          `正常用户 ${count("active")} 人　待领取 ${count("pending")} 人　已停用 ${count("suspended")} 人　管理员 ${count("admin")} 人`;
+      }
+      function changeUser(index) {
+        if (state.scene !== "admin") return;
+        const user = state.users[index];
+        const next = {
+          pending: "revoked",
+          active: "suspended",
+          suspended: "active",
+          revoked: "pending",
+        }[user.status];
+        const apply = () => {
+          user.status = next;
+          renderUsers();
+          feedback(
+            "invite-feedback",
+            `${user.email}：${labels[next]}。仅修改原型，不影响真实账号。`,
+          );
+        };
+        if (["pending", "active"].includes(user.status)) {
+          byId("confirmation-title").textContent =
+            user.status === "pending" ? "撤销这条邀请？" : "停用这个用户？";
+          byId("confirmation-description").textContent =
+            `${user.email}。${user.status === "pending" ? "对方将无法领取此邀请。需要时可以重新邀请。" : "已有会话不再允许访问个人统计，后续采集停止；不会删除已下载的数据。"}此处仅演示。`;
+          state.pendingAction = apply;
+          byId("confirmation").showModal();
+        } else apply();
+      }
+      document
+        .querySelectorAll("[data-view]")
+        .forEach((button) =>
+          button.addEventListener("click", () => showView(button.dataset.view)),
+        );
+      byId("scene").addEventListener("change", (event) => {
+        state.scene = event.target.value;
+        state.collecting = false;
+        renderScene();
+      });
+      byId("data-scene").addEventListener("change", (event) => {
+        state.dataScene = event.target.value;
+        state.hasConfig = state.dataScene !== "first";
+        state.hasResult = state.dataScene !== "first";
+        state.changed = false;
+        state.cooldown = false;
+        state.collecting = false;
+        feedback("refresh-feedback", "");
+        feedback("config-feedback", "");
+        showView("dashboard");
+      });
+      byId("config-form").addEventListener("input", preview);
+      byId("config-form").addEventListener("change", preview);
+      byId("config-form").addEventListener("submit", (event) => {
+        event.preventDefault();
+        if (!member()) return;
+        const logins = lines("author-logins"),
+          emails = lines("author-emails"),
+          accounts = lines("accounts"),
+          includes = lines("includes"),
+          excludes = lines("excludes");
+        const loginPattern = /^[a-z\d](?:[a-z\d-]{0,38})$/i;
+        const repoPattern = /^[a-z\d][a-z\d-]{0,38}\/[a-z\d_.-]{1,100}$/i;
+        const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        let error = "";
+        let field = "author-logins";
+        if (!logins.length && !emails.length)
+          error = "请至少填写一个 GitHub 作者账号或匹配邮箱。";
+        else if (logins.some((value) => !loginPattern.test(value)))
+          error = "GitHub 作者账号格式不正确，请一行填写一个账号。";
+        else if (
+          emails.some(
+            (value) => value.length > 320 || !emailPattern.test(value),
+          )
+        ) {
+          error = "匹配邮箱格式不正确，请检查后保存。";
+          field = "author-emails";
+        } else if (
+          mode() !== "explicit" &&
+          (!accounts.length ||
+            accounts.some((value) => !loginPattern.test(value)))
+        ) {
+          error = "请填写有效的扫描账号或组织。";
+          field = "accounts";
+        } else if (
+          (mode() === "explicit" && !includes.length) ||
+          includes.some((value) => !repoPattern.test(value))
+        ) {
+          error = "请填写有效的指定仓库，格式为 owner/name。";
+          field = "includes";
+        } else if (excludes.some((value) => !repoPattern.test(value))) {
+          error = "排除仓库格式应为 owner/name。";
+          field = "excludes";
+        } else if (
+          [logins, emails, accounts, includes, excludes].some(
+            (values) => values.length > 100,
+          )
+        )
+          error = "每个列表最多填写 100 项；实际采集还受平台仓库配额限制。";
+        if (error) {
+          feedback("config-feedback", error, true);
+          byId(field).focus();
+          return;
+        }
+        state.hasConfig = true;
+        state.changed = true;
+        state.revision += 1;
+        state.automatic = byId("enabled").checked;
+        feedback(
+          "config-feedback",
+          `已在原型内保存配置 v${state.revision}。${state.hasResult ? "旧结果保留，" : ""}${state.collecting ? "在途任务仍使用启动时的配置，下次任务使用新配置。" : "下次采集使用新配置。"}未启动真实采集；可前往“我的统计”体验。`,
+        );
+      });
+      byId("invite-form").addEventListener("submit", (event) => {
+        event.preventDefault();
+        if (state.scene !== "admin") return;
+        const input = byId("invite-email");
+        const email = input.value.trim().toLowerCase();
+        if (email.length > 320 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+          feedback("invite-feedback", "请输入有效的邀请邮箱。", true);
+          input.focus();
+          return;
+        }
+        if (state.users.some((user) => user.email === email)) {
+          feedback(
+            "invite-feedback",
+            "该邮箱已有记录，请在列表中管理，不会重复添加。",
+            true,
+          );
+          return;
+        }
+        state.users.push({ email, status: "pending" });
+        input.value = "";
+        renderUsers();
+        feedback(
+          "invite-feedback",
+          `已添加示例邀请：${email}，等待领取。没有发送邮件，也没有写入后台。`,
+        );
+      });
+      byId("cancel-confirmation").addEventListener("click", () =>
+        byId("confirmation").close(),
+      );
+      byId("confirm-action").addEventListener("click", () => {
+        const apply = state.pendingAction;
+        byId("confirmation").close();
+        state.pendingAction = null;
+        if (apply && state.scene === "admin") apply();
+        byId("invite-email").focus();
+      });
+      byId("confirmation").addEventListener("close", () => {
+        state.pendingAction = null;
+      });
+      byId("refresh").addEventListener("click", () => {
+        if (!member() || !state.hasConfig || state.collecting || state.cooldown)
+          return;
+        if (state.dataScene === "quota") {
+          feedback(
+            "refresh-feedback",
+            "未启动采集：示例仓库范围超过平台上限，请先缩小配置。",
+            true,
+          );
+          return;
+        }
+        state.collecting = true;
+        state.runRevision = state.revision;
+        feedback(
+          "refresh-feedback",
+          "仅模拟任务进行中。点击“演示：完成采集”查看完整发布后的状态。",
+        );
+        renderDashboard();
+      });
+      byId("finish-collection").addEventListener("click", () => {
+        if (!member() || !state.collecting) return;
+        state.collecting = false;
+        state.cooldown = true;
+        state.hasResult = true;
+        state.changed = state.runRevision !== state.revision;
+        state.dataScene = "existing";
+        byId("data-scene").value = "existing";
+        feedback(
+          "refresh-feedback",
+          "模拟采集完成，展示虚构完整快照。15 分钟刷新冷却仅为示例，可用下方演示按钮解除。",
+        );
+        renderDashboard();
+      });
+      byId("reset-cooldown").addEventListener("click", () => {
+        state.cooldown = false;
+        feedback(
+          "refresh-feedback",
+          "原型冷却已解除，没有改变任何真实平台策略。",
+        );
+        renderDashboard();
+      });
+      byId("enter-personal").addEventListener("click", () => {
+        if (state.scene === "public") {
+          byId("public-description").hidden = false;
+          byId("public-description").querySelector("p").textContent =
+            "原型不启动真实登录。请用顶部“原型场景”切换到已授权、未获邀或邮箱待验证，查看对应体验。现有公开看板在正式产品中继续保留。";
+        } else showView(member() ? "dashboard" : "restricted");
+      });
+      byId("public-preview").addEventListener(
+        "click",
+        () =>
+          (byId("public-description").hidden =
+            !byId("public-description").hidden),
+      );
+      byId("verify-email").addEventListener("click", () =>
+        feedback(
+          "verify-feedback",
+          "原型仅展示验证入口，没有发送邮件。正式流程需通过已验证邮箱接口或限时验证邮件取得可信证明，再检查邀请。",
+        ),
+      );
+      [
+        14, 26, 18, 45, 37, 12, 9, 21, 33, 54, 29, 17, 8, 24, 48, 62, 33, 19,
+        12, 30, 43, 74, 46, 28, 16, 23, 58, 83, 61, 38,
+      ].forEach((height) => {
+        const bar = document.createElement("span");
+        bar.style.height = `${height}%`;
+        byId("bars").append(bar);
+      });
+      preview();
+      renderDashboard();
+      showView("config", false);
+    </script>
+  </body>
+</html>

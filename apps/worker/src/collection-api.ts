@@ -1,5 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { CollectionInputError, parseConfig } from "./collection-config.js";
 import { CollectionStore } from "./collection-store.js";
@@ -49,11 +49,14 @@ collectionApi.get("/config", async (context) => {
   return context.json({
     revisionId: active.revisionId,
     config: active.revisionId ? await store.config(active.revisionId) : null,
-    schedulingEnabled: context.env.COLLECTION_ENABLED === "true",
+    schedulingEnabled:
+      !context.env.PUBLIC_ACTIVITY_GITHUB_ID &&
+      context.env.COLLECTION_ENABLED === "true",
   });
 });
 
 collectionApi.put("/config", async (context) => {
+  if (context.env.PUBLIC_ACTIVITY_GITHUB_ID) return retired(context);
   let value: unknown;
   try {
     value = await context.req.json<unknown>();
@@ -86,6 +89,10 @@ collectionApi.get("/runs", async (context) => {
 });
 
 export async function startCollection(env: Bindings, scheduledAt?: number) {
+  if (env.PUBLIC_ACTIVITY_GITHUB_ID)
+    throw new HTTPException(410, {
+      message: "Global collection is retired. Use personal collection.",
+    });
   if (
     !env.DB ||
     !env.COLLECTION ||
@@ -157,6 +164,7 @@ collectionApi.post("/runs", async (context) =>
 );
 
 collectionApi.post("/runs/:id/retry", async (context) => {
+  if (context.env.PUBLIC_ACTIVITY_GITHUB_ID) return retired(context);
   const store = context.get("store");
   const run = await store.one<{ id: string; status: string }>(
     "SELECT r.id,r.status FROM collection_runs r JOIN config_revisions c ON c.id=r.revision_id WHERE r.id=? AND c.config_id='default'",
@@ -183,6 +191,13 @@ collectionApi.post("/runs/:id/retry", async (context) => {
   await instance.restart();
   return context.json({ runId: run.id }, 202);
 });
+
+function retired(context: Context) {
+  return context.json(
+    { error: "Global collection is retired. Use personal collection." },
+    410,
+  );
+}
 
 collectionApi.post("/runs/:id/cancel", async (context) => {
   const store = context.get("store");

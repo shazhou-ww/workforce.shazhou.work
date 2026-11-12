@@ -26,6 +26,7 @@ import type {
   ActivitySnapshot,
   PlatformAccessResponse,
 } from "@shazhou-work/workforce-contracts";
+import { activityWindow } from "@shazhou-work/workforce-contracts";
 
 const origin = "https://example.test";
 const secret = "personal-test-secret-longer-than-thirty-two-characters";
@@ -230,6 +231,16 @@ describe("personal access and invitations", () => {
     const cookie = await session(id);
     const other = await user(env, "202", "other@example.invalid");
     const otherCookie = await session(other);
+    const daily = activityWindow(new Date("2026-11-12T08:00:00Z")).dates.map(
+      (date) => ({
+        date,
+        commits: 1,
+        additions: 2,
+        deletions: 1,
+        averageLines: 3,
+        credential: "must-not-be-published",
+      }),
+    );
     await store
       .statement(
         "UPDATE personal_github SET login='other' WHERE user_id=?",
@@ -248,8 +259,24 @@ describe("personal access and invitations", () => {
           timezone: "Asia/Shanghai",
           days: 30,
           totals: { commits: 1, additions: 2, deletions: 1, averageLines: 3 },
-          daily: [],
-          repositories: [],
+          daily,
+          repositories: [
+            {
+              name: "primary/public",
+              url: "https://github.com/primary/public",
+              description: null,
+              defaultBranch: "main",
+              fork: false,
+              archived: false,
+              latestCommit: null,
+              daily,
+              commits: 1,
+              additions: 2,
+              deletions: 1,
+              averageLines: 3,
+              authorEmails: ["secret@example.invalid"],
+            },
+          ],
           credential: "must-not-be-published",
           authorEmails: ["secret@example.invalid"],
         }),

@@ -24,6 +24,7 @@ import {
 } from "./auth.js";
 import { CollectionInputError, parseConfig } from "./collection-config.js";
 import { CollectionStore } from "./collection-store.js";
+import { publicSnapshotProjection } from "./public-activity.js";
 import type { Bindings } from "./env.js";
 import {
   readAccount,
@@ -226,30 +227,19 @@ personalApi.get("/profiles/:slug", async (context) => {
       "This profile is not public or does not exist.",
       404,
     );
-  const snapshot = row.snapshot_json
-    ? (JSON.parse(row.snapshot_json) as PersonalActivityResponse["snapshot"])
-    : null;
+  let snapshot: unknown = null;
+  if (row.snapshot_json) {
+    try {
+      snapshot = JSON.parse(row.snapshot_json);
+    } catch (error) {
+      if (!(error instanceof SyntaxError)) throw error;
+      // eslint-disable-next-line preserve-caught-error
+      throw new Error("Public profile snapshot is not valid JSON.");
+    }
+  }
   return context.json<PublicProfileResponse>({
     login: row.public_slug,
-    snapshot: snapshot
-      ? {
-          version: snapshot.version,
-          accounts: snapshot.accounts,
-          ...(snapshot.authorFilter
-            ? { authorFilter: snapshot.authorFilter }
-            : {}),
-          generatedAt: snapshot.generatedAt,
-          since: snapshot.since,
-          until: snapshot.until,
-          timezone: snapshot.timezone,
-          days: snapshot.days,
-          totals: snapshot.totals,
-          daily: snapshot.daily,
-          repositories: snapshot.repositories,
-          ...(snapshot.yearly ? { yearly: snapshot.yearly } : {}),
-          ...(snapshot.rolling ? { rolling: snapshot.rolling } : {}),
-        }
-      : null,
+    snapshot: row.snapshot_json ? publicSnapshotProjection(snapshot) : null,
   });
 });
 
@@ -514,7 +504,7 @@ export async function schedulePersonalCollections(
   }
 }
 
-async function reconcilePersonalRun(env: Bindings, userId: string) {
+export async function reconcilePersonalRun(env: Bindings, userId: string) {
   if (!env.DB) return;
   const store = new CollectionStore(env.DB, userId);
   const state = await store.one<{ active_run_id: string | null }>(

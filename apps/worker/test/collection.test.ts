@@ -237,6 +237,22 @@ function params(
 }
 
 describe("D1 collection", () => {
+  it("finishes an old default Workflow payload after the personal public cutover without changing its checkpoints", async () => {
+    const { env, store, revisionId, put } = await setup();
+    const run = params(revisionId);
+    await store.enqueue(run.runId, revisionId, run.until);
+    await runCollection(
+      { ...env, PUBLIC_ACTIVITY_GITHUB_ID: "242885595" },
+      run,
+      steps(),
+      github(),
+    );
+    expect((await store.run(run.runId)).status).toBe("published");
+    expect(put).toHaveBeenCalledOnce();
+    expect(put.mock.calls[0]?.[0]).toBe("activity:v1");
+    expect(await store.ownsRun(run.runId)).toBe(false);
+  });
+
   it("publishes exact rolling windows with pre-period history without changing daily totals or author scope", async () => {
     const { env, store, revisionId } = await setup();
     const run = { ...params(revisionId), until: "2026-11-09T05:30:00.000Z" };

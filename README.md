@@ -197,7 +197,7 @@ migrated into anyone's profile.
 Each authorized user owns one configuration, collection tasks, and results.
 Profiles are private by default. In **主页分享**, users can explicitly publish
 their last complete snapshot at `/u/<github-login>` and later make it private.
-Visitors can read activity statistics, account scope, and public repository
+Visitors can read activity statistics, repository owners, and public repository
 details, but not configuration, emails, credentials, invitations, task state, or
 collection performance. No user directory or cross-user comparison is added.
 Sharing publishes future complete snapshots too; configuration changes do not
@@ -211,7 +211,13 @@ and suspended profiles all return 404. Disabling sharing invalidates subsequent
 reads immediately. Already-open visitor pages recheck every five minutes and
 clear results on a failed read; previously downloaded copies cannot be recalled.
 Apply `0004_public_profiles.sql` before running the updated Worker; existing
-users remain private.
+users remain private. The retained compatibility API `/api/activity` has one
+explicit server-configured exception: `PUBLIC_ACTIVITY_GITHUB_ID=242885595` maps
+the original maintainer's immutable GitHub identity to their complete personal
+result. This setting is independent of the administrator allowlist; adding an
+administrator never publishes their results. It remains separate from the opt-in
+`/u/<github-login>` profiles and has no frontend entry. This release preserves
+that existing production API.
 
 The top-level personal configuration button opens a modal panel, not a sidebar
 or a separate configuration route. Its primary GitHub account comes from OAuth
@@ -231,13 +237,12 @@ management interface, never through committed fixtures, configuration files, or
 Idea documents. Adding an invitation does not claim that an email was sent.
 Suspension applies to existing sessions as well as future task scheduling.
 
-Personal repository limits and refresh cooldowns are enforced by the server. The
-existing public collection keeps its original scope and authorization; personal
-limits must not truncate that dashboard. Production releases apply D1 migrations
-through an authorized D1 connection before tagging a release. The existing
-Actions token is restricted to Worker deployment and is not assumed to have D1
-edit permission. Worker code and assets are deployed only by the GitHub Actions
-workflow; never bypass it with a local production deploy.
+Personal repository limits and refresh cooldowns are enforced by the server,
+including the public source's personal collection. Production releases apply D1
+migrations through an authorized D1 connection before tagging a release. The
+existing Actions token is restricted to Worker deployment and is not assumed to
+have D1 edit permission. Worker code and assets are deployed only by the GitHub
+Actions workflow; never bypass it with a local production deploy.
 
 ### Personal API and operational setup
 
@@ -292,8 +297,8 @@ Personal scopes allow up to 200 public repositories after expansion, a 15-minute
 manual refresh cooldown, and a 50,000 fetched-commit history budget per run. At
 most four personal runs reserve global capacity; hourly scheduling is bounded to
 four due users per invocation. Failed or suspended runs retain the previous
-complete result. The legacy public collector retains its existing repository
-scope and independent publication lock.
+complete result. The homepage reuses the designated owner's personal collection;
+it does not reserve a second global task or a separate GitHub request budget.
 
 ## Collection
 
@@ -419,9 +424,9 @@ produces a manually requested offline artifact.
 
 ### Private configuration and management
 
-The default dashboard has immutable configuration revisions. Each run pins its
-revision and cutoff; changing a configuration does not alter a running or
-historical run. Scope is:
+The retained legacy default dashboard has immutable configuration revisions.
+Each run pins its revision and cutoff; changing a configuration does not alter a
+running or historical run. Scope is:
 
 ```text
 (owned public repositories, when enabled by mode, UNION explicit includes)
@@ -446,6 +451,13 @@ existing `/api/me` authorization remains unchanged. Management responses use
 | `GET /api/collection/runs`             | Publication lock and latest 20 run records                                    |
 | `POST /api/collection/runs/:id/retry`  | Restart an errored Workflow that still owns the lock                          |
 | `POST /api/collection/runs/:id/cancel` | Release an errored/terminated Workflow's lock and permanently cancel that run |
+
+With `PUBLIC_ACTIVITY_GITHUB_ID` configured, legacy configuration writes, new
+global runs, and global restarts return **410**. Protected configuration/run
+reads and guarded cancellation remain available for recovery. The legacy
+collector, Workflow class/step names, D1 tables, historical watermarks and KV
+snapshot are retained for old in-flight versions; they are not deleted or
+rewritten. Their eventual KV writes cannot replace the D1-backed homepage.
 
 Cancellation never stops a live Workflow behind its back: terminate it in
 Cloudflare first if it is still running. Cancelled or published runs cannot
@@ -695,11 +707,15 @@ snapshots without this metadata remain explicitly labeled all-author.
      with `--remote`. Create and replace the binding only for a new environment.
    - Set Worker secrets `GH_TOKEN`, `COLLECTION_ADMIN_TOKEN`, and the stable
      `COLLECTION_EMAIL_KEY` using `wrangler secret put`.
-   - Save configuration through the protected API and manually collect once.
-   - After verifying the complete KV result, explicitly set configuration
-     `enabled: true`, `COLLECTION_ENABLED: "true"` and
+   - Configure and complete a personal collection for the designated stable
+     GitHub identity. Verify its complete D1 publication before switching the
+     public source; do not copy another user's snapshot or private
+     configuration.
+   - Keep `PUBLIC_ACTIVITY_GITHUB_ID` set to that explicit numeric identity. Set
+     personal configuration `enabled: true`, `COLLECTION_ENABLED: "true"` and
      `triggers.crons: ["17 * * * *"]` to opt into hourly UTC scheduling.
 
+   With the public personal source enabled, cron schedules personal tasks only.
    Do not enable the legacy Actions schedule or its KV publisher. Cron is a
    trigger, not a freshness guarantee: inspect Workflows and the protected run
    API when data becomes stale. `/api/health` remains liveness only.
@@ -738,6 +754,12 @@ and failures stay below the single page heading; completed collection refreshes
 the statistics without leaving the page. Visitors to a public profile never
 receive refresh or task controls. The legacy public collection API and its
 administrator authorization are retained without a frontend entry.
+
+For the D1-backed homepage, only the configured source owner can use this
+control, with a current personal session and live qualification. It starts and
+monitors that owner's existing personal task, with the same 15-minute cooldown
+and global concurrency limit; other administrators cannot publish themselves.
+The existing result-read retry control never creates another task.
 
 Authorization uses the immutable GitHub account ID in the encrypted Auth.js JWT,
 set only from the verified GitHub OAuth account. The checked-in
@@ -790,10 +812,41 @@ acknowledgment, and creation failures are logged and recorded explicitly.
 
 - `GET /api/activity`: typed `ActivitySnapshot`, with 30 zero-filled daily
   buckets, weighted totals, repository metadata, and per-repository daily data.
-  Cached publicly for 60 seconds; KV publication is eventually consistent.
+  Cached publicly for 60 seconds. Production reads the designated identity's
+  last complete D1 personal publication, not `activity:v1` KV. Request
+  parameters cannot choose a user, configuration or run to publish. The response
+  recursively allowlists statistics and public repository metadata; account
+  labels are derived from those repositories, and author labels are generic.
+  Private scope choices, historical author logins, email matching flags, email
+  addresses, credentials and configuration are not copied.
 - Before the first snapshot: **503** with setup guidance, not fake zero metrics.
-- KV failures: logged server-side and returned as **500** with a safe message.
+- Storage/invalid snapshot failures: logged server-side and returned as **500**
+  with a safe message, never another user's data or a silent legacy fallback.
 - `GET /api/health`: Worker liveness only; it does not assert data freshness.
+
+### Public-source cutover and recovery
+
+This cutover needs no D1 migration or data cleanup. Before release, use the
+authorized Cloudflare connection to verify only the designated numeric
+identity's publication status, cutoff, JSON validity and aggregate shape counts,
+and verify the legacy default has no active task. Never retrieve full private
+snapshots, emails or credentials for this check.
+
+The personal publisher still requires complete repositories, its scoped lock and
+a fixed cutoff. Failed runs preserve the previous complete snapshot; the
+existing cutoff fence blocks older runs. Public reads follow that atomic D1
+publication immediately (subject to the 60-second HTTP cache), including after
+the next hourly personal run. Check the public API cutoff against the source
+run's D1 cutoff after deployment, and confirm cron creates no default runs.
+
+For recovery, first pause scheduling with `COLLECTION_ENABLED=false` and inspect
+both scoped locks via the authorized connection. Prefer fixing the source or
+deploying a corrected commit through a new release tag. If an explicit rollback
+to legacy operation is necessary, removing `PUBLIC_ACTIVITY_GITHUB_ID` restores
+the retained KV reader and legacy controls/scheduling; verify the retained KV
+snapshot and legacy configuration before doing so. It may be older than the
+personal result. Use a new Actions release tag, never move an existing tag,
+delete personal state, reset locks blindly, or republish private snapshots.
 
 ## Commands and lineage
 

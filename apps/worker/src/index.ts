@@ -21,6 +21,7 @@ import { manualCollectionApi } from "./manual-collection-api.js";
 import { personalApi } from "./personal-api.js";
 import { deleteCookie } from "hono/cookie";
 import { linkCookieName } from "./auth.js";
+import { publicPersonalSnapshot } from "./public-activity.js";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -58,10 +59,9 @@ app.get("/api/health", (context) =>
 );
 
 app.get("/api/activity", async (context) => {
-  const snapshot = await context.env.STATS.get<ActivitySnapshot>(
-    "activity:v1",
-    "json",
-  );
+  const snapshot = context.env.PUBLIC_ACTIVITY_GITHUB_ID
+    ? await publicPersonalSnapshot(context.env)
+    : await context.env.STATS.get<ActivitySnapshot>("activity:v1", "json");
   if (!snapshot) {
     return context.json(
       {

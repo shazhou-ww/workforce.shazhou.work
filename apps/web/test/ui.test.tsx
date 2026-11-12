@@ -58,6 +58,13 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+function chartLineSegments(container: HTMLElement) {
+  const path = container.querySelector(".chart-line path")?.getAttribute("d");
+  return (path?.match(/[MC][^MC]+/g) ?? []).map((segment) =>
+    segment.slice(1).trim().split(/[ ,]+/).map(Number),
+  );
+}
+
 describe("dashboard data loading", () => {
   it("refreshes immediately after manual collection and retains the newer snapshot if an older request finishes late", async () => {
     vi.useFakeTimers();
@@ -747,10 +754,16 @@ describe("read-only activity dashboard", () => {
     expect(days[0]?.getAttribute("aria-label")).not.toContain("周末");
   });
 
-  it("uses every hourly sample without node markers, preserving daily bars and independent axes", () => {
+  it("uses daily line totals at bar centers instead of overlapping rolling samples, preserving bars and independent axes", () => {
     const commits = [
       { sha: "one", committedAt: window.since, additions: 60, deletions: 40 },
       { sha: "two", committedAt: window.since, additions: 0, deletions: 0 },
+      {
+        sha: "next-day",
+        committedAt: "2026-10-07T16:30:00.000Z",
+        additions: 40,
+        deletions: 10,
+      },
       {
         sha: "three",
         committedAt: "2026-11-05T04:00:00.000Z",
@@ -775,24 +788,21 @@ describe("read-only activity dashboard", () => {
         now={now}
       />,
     );
-    const points = container
-      .querySelector(".chart-line polyline")
-      ?.getAttribute("points")
-      ?.split(" ")
-      .map((point) => point.split(",").map(Number));
-    expect(points).toHaveLength(713);
-    expect(points?.[0]?.[0]).toBe(0);
-    expect(points?.[0]?.[1]).toBeCloseTo(10);
-    expect(points?.[1]?.[0]).toBeCloseTo(1000 / 720);
-    expect(points?.[1]?.[1]).toBeCloseTo(10);
-    expect(points?.[24]?.[1]).toBe(100);
-    expect(points?.at(-1)?.[0]).toBeCloseTo(((29 + 16 / 24) / 30) * 1000);
-    expect(points?.at(-1)?.[1]).toBeCloseTo(91);
+    const segments = chartLineSegments(container);
+    expect(segments).toHaveLength(30);
+    expect(segments[0]?.[0]).toBeCloseTo(1000 / 60);
+    expect(segments[0]?.[1]).toBeCloseTo(10);
+    expect(segments[1]?.[4]).toBeCloseTo(50);
+    expect(segments[1]?.[5]).toBeCloseTo(55);
+    expect(segments[2]?.[5]).toBe(100);
+    expect(segments.at(-1)?.[4]).toBeCloseTo((29.5 / 30) * 1000);
+    expect(segments.at(-1)?.[5]).toBeCloseTo(91);
     const bars = container.querySelectorAll<HTMLElement>(".bar");
     expect(bars[0]?.style.height).toBe("90%");
     expect(bars[29]?.style.height).toBe("45%");
     expect(container.querySelectorAll(".line-marker")).toHaveLength(0);
-    expect(container.textContent).toContain("过去 24 小时滚动统计");
+    expect(container.textContent).toContain("每日变化行数 · 平滑曲线");
+    expect(container.textContent).not.toContain("过去 24 小时");
     expect(container.querySelector(".commits-axis > span")?.textContent).toBe(
       "2",
     );
@@ -807,17 +817,85 @@ describe("read-only activity dashboard", () => {
     );
   });
 
-  it("explicitly marks legacy snapshots as awaiting rolling data instead of interpolating daily totals", () => {
+  it("renders the same daily curve for snapshots without rolling data", () => {
     const container = document.createElement("div");
     const legacy = { ...snapshot };
     delete legacy.rolling;
     container.innerHTML = renderToStaticMarkup(
       <Dashboard state={{ kind: "ready", snapshot: legacy }} now={now} />,
     );
-    expect(container.textContent).toContain("当前快照尚无滚动统计");
+    const current = document.createElement("div");
+    current.innerHTML = renderToStaticMarkup(
+      <Dashboard state={{ kind: "ready", snapshot }} now={now} />,
+    );
+    expect(chartLineSegments(container)).toEqual(chartLineSegments(current));
+    expect(chartLineSegments(container)).toHaveLength(30);
+    expect(container.textContent).not.toContain("当前快照尚无滚动统计");
     expect(container.querySelectorAll(".line-marker")).toHaveLength(0);
     expect(container.querySelectorAll(".chart-day")).toHaveLength(30);
   });
+
+  it("smoothly interpolates daily values without overshoot at spikes, troughs, or plateaus", () => {
+    const values = [0, 20, 60, 10, 10, 0, 500, 0];
+    const chartDaily = values.map((value, index) => ({
+      ...daily[index]!,
+      additions: value,
+      deletions: 0,
+    }));
+    const container = document.createElement("div");
+    container.innerHTML = renderToStaticMarkup(
+      <Dashboard
+        state={{ kind: "ready", snapshot: { ...snapshot, daily: chartDaily } }}
+        now={now}
+      />,
+    );
+    const segments = chartLineSegments(container);
+    expect(segments).toHaveLength(values.length);
+    let previousY = segments[0]![1]!;
+    segments.forEach((segment, index) => {
+      const endX = segment.at(-2)!;
+      const endY = segment.at(-1)!;
+      expect(endX).toBeCloseTo(((index + 0.5) / values.length) * 1000);
+      expect(endY).toBeCloseTo(100 - (values[index]! / 500) * 90);
+      if (index > 0) {
+        expect(segment).toHaveLength(6);
+        for (const controlY of [segment[1]!, segment[3]!]) {
+          expect(controlY).toBeGreaterThanOrEqual(Math.min(previousY, endY));
+          expect(controlY).toBeLessThanOrEqual(Math.max(previousY, endY));
+        }
+        const next = segments[index + 1];
+        if (next) {
+          expect(endY - segment[3]!).toBeCloseTo(next[1]! - endY);
+        }
+      }
+      previousY = endY;
+    });
+  });
+
+  it.each([{ values: [] }, { values: [0] }, { values: [42] }])(
+    "handles a minimal daily series $values",
+    ({ values }) => {
+      const chartDaily = values.map((value) => ({
+        ...daily[0]!,
+        additions: value,
+        deletions: 0,
+      }));
+      const container = document.createElement("div");
+      container.innerHTML = renderToStaticMarkup(
+        <Dashboard
+          state={{
+            kind: "ready",
+            snapshot: { ...snapshot, daily: chartDaily },
+          }}
+          now={now}
+        />,
+      );
+      expect(chartLineSegments(container)).toEqual(
+        values.length ? [[500, values[0] ? 10 : 100]] : [],
+      );
+      expect(container.innerHTML).not.toMatch(/NaN|Infinity/);
+    },
+  );
 
   it("renders empty repositories and stale data honestly", () => {
     const html = renderToStaticMarkup(
@@ -899,12 +977,14 @@ describe("read-only activity dashboard", () => {
     expect(container.querySelector(".lines-axis > span")?.textContent).toBe(
       "0",
     );
+    const segments = chartLineSegments(container);
+    expect(segments).toHaveLength(30);
     expect(
-      container
-        .querySelector(".chart-line polyline")
-        ?.getAttribute("points")
-        ?.split(" ")
-        .every((point) => point.endsWith(",100")),
+      segments.every((segment) =>
+        segment.every(
+          (coordinate, index) => index % 2 === 0 || coordinate === 100,
+        ),
+      ),
     ).toBe(true);
     expect(html).not.toContain("NaN");
     expect(html).not.toContain("Infinity");

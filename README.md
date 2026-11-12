@@ -79,25 +79,25 @@ GitHub repository location.
 The repository list hides projects with zero additions plus deletions in the
 selected period by default, even if they have commits. Toggle "显示零变化项目"
 to include them. The count shows visible / total repositories. The composite
-chart shows daily commit counts as bars (left axis) and trailing 24-hour
-additions plus deletions as a line (right axis), sampled hourly in Beijing time,
-matching the collection cadence. The line uses every sample without node
-markers. Each point counts `(anchor - 24 hours, anchor]`, including history
-before the first displayed day. Only anchors at or before the collection cutoff
-are shown; the partial current interval is not extrapolated. Overlapping windows
-must not be summed as period totals. Daily bars, selection, and totals retain
-their calendar-day meaning. A rolling-statistics table provides exact values.
-Old snapshots without `rolling` explicitly show a pending collection notice
-instead of inventing a line. The two axes scale independently. Borderless, very
-light gray background bands beneath the gridlines mark Saturdays and Sundays in
-the Beijing calendar; Monday through Friday retain a white background. This
-distinction does not account for public holidays or compensatory workdays. The
-legend explains the colors, and each day's tooltip and accessible label include
-its weekday. Selecting a day updates the prominent date, totals, and repository
-statistics; selecting it again or choosing "查看 30 天合计" restores the full
-period. Search filters the repository list only, not the global chart or totals.
-The browser re-reads the snapshot every five minutes. Data older than three
-hours is visibly marked stale.
+chart shows daily commit counts as bars (left axis) and daily additions plus
+deletions as a smooth curve (right axis), both grouped by Beijing calendar day.
+The curve passes through each day's actual value at the center of its bar, using
+monotone cubic interpolation without node markers or overshoot between adjacent
+values. Smoothing changes only the connecting line, not the daily data; no
+moving average is applied. Tooltips and the daily table show exact values. Today
+includes only activity through the collection cutoff, without extrapolation. The
+chart uses daily data even for older snapshots without `rolling`; existing
+rolling API data remains compatible but is no longer displayed. The two axes
+scale independently. Borderless, very light gray background bands beneath the
+gridlines mark Saturdays and Sundays in the Beijing calendar; Monday through
+Friday retain a white background. This distinction does not account for public
+holidays or compensatory workdays. The legend explains the colors, and each
+day's tooltip and accessible label include its weekday. Selecting a day updates
+the prominent date, totals, and repository statistics; selecting it again or
+choosing "查看 30 天合计" restores the full period. Search filters the
+repository list only, not the global chart or totals. The browser re-reads the
+snapshot every five minutes. Data older than three hours is visibly marked
+stale.
 
 The top row places 30-day statistics beside the yearly heatmap; the existing
 composite chart spans the row below. Additions and deletions share one

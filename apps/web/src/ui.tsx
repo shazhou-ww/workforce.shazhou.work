@@ -3,7 +3,6 @@ import {
   type ActivitySnapshot,
   type ActivityTotals,
   type DailyActivity,
-  type RollingActivity,
 } from "@shazhou-work/workforce-contracts";
 import { useState, type ReactNode } from "react";
 import { YearlyHeatmap } from "./yearly-heatmap.js";
@@ -232,8 +231,6 @@ function ActivityDashboard({
       <section className="activity-panel" aria-label="每日提交与代码变化">
         <ActivityChart
           daily={snapshot.daily}
-          rolling={snapshot.rolling}
-          since={snapshot.since}
           selectedDate={selectedDate}
           onSelectDate={(date) =>
             setSelectedDate(selectedDate === date ? null : date)
@@ -259,10 +256,10 @@ function ActivityDashboard({
                 作为联合作者不影响计入；仅由机器人作为主作者且不匹配的提交不计入。
               </>
             ) : null}
-            柱形表示每日提交次数（左轴），折线表示过去 24 小时新增行 +
-            删除行（右轴），按北京时间每 1 小时采样，不显示节点标记。
-            每个窗口不含起点、包含锚点；相邻窗口重叠，不能相加作为总量。
-            折线仅显示采集截止前已到达的锚点，不补未来数据。
+            柱形表示每日提交次数（左轴），曲线表示每日新增行 +
+            删除行（右轴），均按北京时间自然日统计，不显示节点标记。
+            曲线使用单调三次插值平滑连接每日真实值，不做移动平均，不在相邻日数值之间过冲。
+            悬停与明细显示每日实际值；今天仅统计至采集截止时间，不补未来数据。
             两轴独立缩放，不能直接比较高度。 平均行变化 =（新增行 + 删除行）÷
             提交数；无提交时为 0。 保留
             fork；合并提交及继承历史也按同一作者口径计入。
@@ -295,35 +292,6 @@ function ActivityDashboard({
               </tbody>
             </table>
           </div>
-          {snapshot.rolling ? (
-            <div className="table-scroll">
-              <table>
-                <caption>
-                  过去 24 小时滚动统计（北京时间，每 1 小时采样）
-                </caption>
-                <thead>
-                  <tr>
-                    <th>锚点</th>
-                    <th>提交数</th>
-                    <th>新增行</th>
-                    <th>删除行</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {snapshot.rolling.map((point) => (
-                    <tr key={point.at}>
-                      <th scope="row">
-                        {timestamp.format(new Date(point.at))}
-                      </th>
-                      <td>{number.format(point.commits)}</td>
-                      <td>{number.format(point.additions)}</td>
-                      <td>{number.format(point.deletions)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : null}
         </details>
       </section>
 
@@ -457,50 +425,59 @@ function ActivityDashboard({
   );
 }
 
+function dailyLinePath(daily: readonly DailyActivity[], maxLines: number) {
+  const heights = daily.map(
+    (day) => 100 - ((day.additions + day.deletions) / (maxLines || 1)) * 90,
+  );
+  const step = 1000 / (daily.length || 1);
+  const slopes = heights
+    .slice(1)
+    .map((height, index) => height - heights[index]!);
+  const tangents = heights.map((_, index) => {
+    const before = slopes[index - 1];
+    const after = slopes[index];
+    if (before === undefined) return after ?? 0;
+    if (after === undefined) return before;
+    if (before * after <= 0) return 0;
+    // Harmonic-mean tangents preserve monotonicity between adjacent days.
+    return (2 * before * after) / (before + after);
+  });
+  return heights
+    .map((height, index) => {
+      const x = (index + 0.5) * step;
+      if (index === 0) return `M ${x},${height}`;
+      const previousX = (index - 0.5) * step;
+      return `C ${previousX + step / 3},${heights[index - 1]! + tangents[index - 1]! / 3} ${x - step / 3},${height - tangents[index]! / 3} ${x},${height}`;
+    })
+    .join(" ");
+}
+
 function ActivityChart({
   daily,
-  rolling,
-  since,
   selectedDate,
   onSelectDate,
 }: {
   readonly daily: readonly DailyActivity[];
-  readonly rolling: readonly RollingActivity[] | undefined;
-  readonly since: string;
   readonly selectedDate: string | null;
   readonly onSelectDate: (date: string) => void;
 }) {
   const maxCommits = Math.max(0, ...daily.map((day) => day.commits));
   const maxLines = Math.max(
     0,
-    ...(rolling ?? []).map((point) => point.additions + point.deletions),
+    ...daily.map((day) => day.additions + day.deletions),
   );
-  const start = Date.parse(since);
-  const duration = daily.length * 86_400_000;
-  const points = (rolling ?? []).map((point) => ({
-    ...point,
-    x: duration ? (Date.parse(point.at) - start) / duration : 0,
-    y: 1 - ((point.additions + point.deletions) / (maxLines || 1)) * 0.9,
-  }));
-  const linePoints = points
-    .map((point) => `${point.x * 1000},${point.y * 100}`)
-    .join(" ");
+  const linePath = dailyLinePath(daily, maxLines);
 
   return (
     <div className="activity-chart">
       <div className="chart-caption">
         <span className="chart-key commits-key">提交次数 · 左轴</span>
         <span className="chart-key lines-key">
-          过去 24 小时变化行数 · 每 1 小时采样 · 右轴
+          每日变化行数 · 平滑曲线 · 右轴
         </span>
         <span className="chart-key weekdays-key">周一至周五</span>
         <span className="chart-key weekends-key">周末（周六、周日）</span>
       </div>
-      {rolling === undefined ? (
-        <p className="stale-notice" role="status">
-          当前快照尚无滚动统计，下一次完整采集后显示折线；每日提交与明细不受影响。
-        </p>
-      ) : null}
       <div className="chart-composite">
         <div className="chart-axis commits-axis" aria-hidden="true">
           <span title={`${maxCommits} 次提交`}>
@@ -511,7 +488,7 @@ function ActivityChart({
         <div
           className="chart"
           role="group"
-          aria-label="30 天每日提交次数与过去 24 小时变化行数（北京时间每 1 小时采样），点击日期查看每日详情"
+          aria-label="30 天每日提交次数与每日变化行数（北京时间，平滑曲线），点击日期查看每日详情"
         >
           <svg
             className="chart-line"
@@ -519,7 +496,7 @@ function ActivityChart({
             preserveAspectRatio="none"
             aria-hidden="true"
           >
-            <polyline points={linePoints} />
+            <path d={linePath} />
           </svg>
           {daily.map((day, index) => {
             const lines = day.additions + day.deletions;

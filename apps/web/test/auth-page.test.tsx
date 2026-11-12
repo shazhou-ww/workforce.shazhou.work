@@ -63,6 +63,16 @@ describe("custom authentication pages", () => {
     }
     expect(container.textContent).toContain("使用 GitHub 登录");
     expect(container.textContent).toContain("使用 Google 登录");
+    expect(container.querySelector("h1")?.textContent).toBe(
+      "登录，查看我的统计。",
+    );
+    expect(container.textContent).toContain(
+      "登录仅验证身份，不代表取得邀请资格",
+    );
+    expect(container.textContent).toContain("个人服务需已验证邮箱匹配有效邀请");
+    expect(container.textContent).toContain("公开看板无需登录");
+    expect(container.textContent).toContain("管理员仍可手动更新公开采集");
+    expect(container.textContent).toContain("仅本人可见的统计");
     await act(async () => {
       forms[0]?.dispatchEvent(
         new Event("submit", { bubbles: true, cancelable: true }),
@@ -87,6 +97,8 @@ describe("custom authentication pages", () => {
     expect(cancel?.textContent).toContain("取消");
     expect(request).toHaveBeenCalledTimes(1);
     expect(container.querySelector("h1")?.textContent).toBe("准备退出登录？");
+    expect(container.textContent).toContain("个人统计和管理员操作需重新登录");
+    expect(container.textContent).toContain("个人统计仍仅本人可见");
   });
 
   it("does not render a form before the CSRF token is ready", async () => {

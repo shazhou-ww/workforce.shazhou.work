@@ -6,7 +6,7 @@ import type {
   HealthResponse,
   SessionResponse,
 } from "@shazhou-work/workforce-contracts";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { secureHeaders } from "hono/secure-headers";
 
@@ -18,18 +18,37 @@ import {
 import type { Bindings } from "./env.js";
 import { collectionApi } from "./collection-api.js";
 import { manualCollectionApi } from "./manual-collection-api.js";
+import { personalApi } from "./personal-api.js";
+import { deleteCookie } from "hono/cookie";
+import { linkCookieName } from "./auth.js";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
 app.use("*", secureHeaders());
 app.use(
   "*",
-  initAuthConfig((context) => createAuthConfig(context.env as Bindings)),
+  initAuthConfig((context) =>
+    createAuthConfig(context.env as Bindings, context.req.raw),
+  ),
 );
 
+app.use(
+  "/api/auth/callback/github",
+  async (
+    context: Context<{ Bindings: Bindings }, "/api/auth/callback/github">,
+    next,
+  ) => {
+    await next();
+    deleteCookie(context, linkCookieName(context.req.raw), {
+      path: "/",
+      secure: new URL(context.req.url).protocol === "https:",
+    });
+  },
+);
 app.use("/api/auth/*", authHandler());
 app.route("/api/collection", collectionApi);
 app.route("/api/activity/collection", manualCollectionApi);
+app.route("/api", personalApi);
 
 app.get("/api/health", (context) =>
   context.json<HealthResponse>({

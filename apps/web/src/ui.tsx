@@ -41,18 +41,26 @@ export function Dashboard({
   now = Date.now(),
   collectionControl,
   refreshError,
+  personal = false,
+  notice,
+  children,
 }: {
   readonly state: DashboardState;
   readonly now?: number;
   readonly collectionControl?: ReactNode;
   readonly refreshError?: string | null;
+  readonly personal?: boolean;
+  readonly notice?: ReactNode;
+  readonly children?: ReactNode;
 }) {
   return (
     <div className="shell">
       <header className="masthead">
         <WorkforceBrand />
         <div className="header-actions">
-          <span className="readonly">公开仓库 · 只读看板</span>
+          <span className="readonly">
+            {personal ? "我的统计 · 仅本人可见" : "公开仓库 · 只读看板"}
+          </span>
           {collectionControl}
         </div>
       </header>
@@ -62,20 +70,22 @@ export function Dashboard({
         </p>
       ) : null}
       <main>
-        {state.kind === "loading" ? (
-          <section className="notice" role="status">
-            <h1>正在读取工作动态</h1>
-            <p>从 Cloudflare 获取最近一次完整统计。</p>
-          </section>
-        ) : state.kind === "error" ? (
-          <section className="notice error" role="alert">
-            <h1>暂时无法读取统计</h1>
-            <p>{state.message}</p>
-            <a href="/">重新加载</a>
-          </section>
-        ) : (
-          <ActivityDashboard snapshot={state.snapshot} now={now} />
-        )}
+        {notice}
+        {children ??
+          (state.kind === "loading" ? (
+            <section className="notice" role="status">
+              <h1>正在读取工作动态</h1>
+              <p>从 Cloudflare 获取最近一次完整统计。</p>
+            </section>
+          ) : state.kind === "error" ? (
+            <section className="notice error" role="alert">
+              <h1>暂时无法读取统计</h1>
+              <p>{state.message}</p>
+              <a href="/">重新加载</a>
+            </section>
+          ) : (
+            <ActivityDashboard snapshot={state.snapshot} now={now} />
+          ))}
       </main>
       <footer>
         <span>GitHub 数据，Cloudflare 托管</span>

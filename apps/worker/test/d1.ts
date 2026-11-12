@@ -77,13 +77,16 @@ export class TestD1 implements D1Database {
     for (const migration of [
       "0001_collection.sql",
       "0002_collection_performance.sql",
+      "0003_personal_workforce.sql",
     ]) {
+      this.sqlite.exec("BEGIN");
       this.sqlite.exec(
         readFileSync(
           new URL(`../migrations/${migration}`, import.meta.url),
           "utf8",
         ),
       );
+      this.sqlite.exec("COMMIT");
     }
   }
 

@@ -1,7 +1,8 @@
 # Workforce
 
-Read-only GitHub activity dashboard for **workforce.shazhou.work**, derived with
-git-lineage from
+GitHub activity dashboard for **workforce.shazhou.work**, with a preserved
+public view and invitation-only personal workspaces, derived with git-lineage
+from
 [preset-cloudflare-fullstack](https://github.com/shazhou-ww/preset-cloudflare-fullstack).
 React/Vite supplies the interface, a Hono Cloudflare Worker supplies the API,
 Cloudflare Workflows collects GitHub history into D1, and Workers KV stores the
@@ -154,11 +155,13 @@ same deep tone. Weekend backgrounds use a fixed neutral light gray.
 Addition/deletion and status colors retain their independent semantic meanings.
 No runtime theme picker is required.
 
-The public dashboard does not require OAuth secrets or sign-in. The template's
-OAuth APIs remain available, with `/api/me` still protected. To use them, copy
-`apps/worker/.dev.vars.example` to `.dev.vars`, generate a real `AUTH_SECRET`,
-and configure the desired providers and callback URLs as described in the
-template. Do not configure providers for the read-only public dashboard.
+The public dashboard does not require OAuth secrets or sign-in. Personal
+workspaces require sign-in and a current platform invitation; authentication
+alone does not grant access. OAuth APIs remain available, with `/api/me` still
+protected. To use them, copy `apps/worker/.dev.vars.example` to `.dev.vars`,
+generate a real `AUTH_SECRET`, and configure the desired providers and callback
+URLs as described in the template. Providers are optional when serving only the
+public dashboard.
 
 Authentication uses the branded Chinese `/signin` and `/signout` pages. Existing
 `/api/auth/signin` and `/api/auth/signout` links redirect to these pages; OAuth
@@ -167,6 +170,79 @@ cookie-backed CSRF token, and return destinations are validated by Auth.js.
 Signing out requires confirmation; cancelling returns to the public dashboard
 without changing the session. Login does not grant collection permissions:
 server-side administrator checks remain authoritative.
+
+## Invitation-only personal workspaces
+
+The public homepage and its existing snapshot remain separate from personal
+statistics. Each authorized user owns one configuration, its collection tasks,
+and private results. There are no cross-user aggregates, comparisons, teams,
+rankings, or automatically public personal dashboards.
+
+The top-level personal configuration button opens a modal panel, not a sidebar
+or a separate configuration route. Its primary GitHub account comes from OAuth
+and is read-only. Users can select their public repositories and joined
+organizations, add other public account scopes, and add or remove individual
+included/excluded repositories. Exclusions win. Historical author accounts and
+emails are matching filters, not proof of identity or invitation credentials.
+Only public repositories and the existing default-branch statistics are
+supported; GitHub credentials never belong in the browser or a dashboard
+snapshot.
+
+Administrators are bootstrapped by stable numeric GitHub IDs in
+`COLLECTION_ADMIN_GITHUB_IDS`. They manage invitations using verified login
+emails and can revoke invitations or suspend/restore user access. Invitation
+addresses are private operational data: enter them through the protected
+management interface, never through committed fixtures, configuration files, or
+Idea documents. Adding an invitation does not claim that an email was sent.
+Suspension applies to existing sessions as well as future task scheduling.
+
+Personal repository limits and refresh cooldowns are enforced by the server. The
+existing public collection keeps its original scope and authorization; personal
+limits must not truncate that dashboard. Production releases apply D1 migrations
+through an authorized D1 connection before tagging a release. The existing
+Actions token is restricted to Worker deployment and is not assumed to have D1
+edit permission. Worker code and assets are deployed only by the GitHub Actions
+workflow; never bypass it with a local production deploy.
+
+### Personal API and operational setup
+
+Personal endpoints use the existing Auth.js session, enforce live qualification,
+and return `Cache-Control: private, no-store`. Mutations require the same-origin
+`Origin` header. Existing sessions must sign in again after this upgrade to
+obtain the stable personal identity; no existing public snapshot is migrated
+into another user's space.
+
+| Endpoint                                              | Purpose                                                                                    |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `GET /api/platform/access`                            | Current qualification, administrator flag, GitHub connection and limits                    |
+| `GET/PUT /api/personal/config`                        | Read or save only the current user's versioned configuration                               |
+| `GET /api/personal/activity`                          | Read the last complete private result and configuration staleness                          |
+| `GET/POST /api/personal/collection`                   | Inspect personal tasks or request a refresh                                                |
+| `GET /api/personal/collection/:runId`                 | Inspect a task belonging to the current user                                               |
+| `GET /api/personal/github`                            | Discover authorized joined organizations and public repository suggestions                 |
+| `GET /api/personal/github/repository?name=owner/name` | Validate a public repository before adding it                                              |
+| `POST /api/personal/github/connect`                   | Start a session-bound, expiring GitHub connection or additional organization authorization |
+| `GET/POST /api/admin/invitations`                     | List or add private invitations, administrators only                                       |
+| `POST /api/admin/invitations/:id`                     | Revoke, suspend or restore using an explicit action                                        |
+
+Use the existing GitHub OAuth callback `/api/auth/callback/github`. GitHub login
+uses verified email addresses to claim invitations; organization discovery asks
+for `read:org` separately. Google identities require a trusted verified-email
+claim; unsupported verification claims cannot claim an invitation. Matching
+emails never automatically merge different provider identities.
+
+GitHub access credentials are encrypted server-side in D1 with AES-GCM using a
+domain-separated HKDF key derived from `AUTH_SECRET`. Rotating that secret
+invalidates existing sessions and requires GitHub reconnection. There is no new
+production secret to provision and no user-supplied personal access token. Keep
+`AUTH_SECRET` stable and private.
+
+New personal scopes allow up to 50 public repositories after expansion, a
+15-minute manual refresh cooldown, and a 50,000 fetched-commit history budget
+per run. At most four personal runs reserve global capacity; hourly scheduling
+is bounded to four due users per invocation. Failed or suspended runs retain the
+previous complete result. The legacy public collector retains its existing
+repository scope and independent publication lock.
 
 ## Collection
 

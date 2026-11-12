@@ -80,7 +80,7 @@ collectionApi.get("/runs", async (context) => {
       "SELECT active_run_id,published_run_id FROM collection_state WHERE id=1",
     ),
     runs: await store.rows(
-      "SELECT * FROM collection_runs ORDER BY started_at DESC LIMIT 20",
+      "SELECT r.* FROM collection_runs r JOIN config_revisions c ON c.id=r.revision_id WHERE c.config_id='default' ORDER BY r.started_at DESC LIMIT 20",
     ),
   });
 });
@@ -159,7 +159,7 @@ collectionApi.post("/runs", async (context) =>
 collectionApi.post("/runs/:id/retry", async (context) => {
   const store = context.get("store");
   const run = await store.one<{ id: string; status: string }>(
-    "SELECT id,status FROM collection_runs WHERE id=?",
+    "SELECT r.id,r.status FROM collection_runs r JOIN config_revisions c ON c.id=r.revision_id WHERE r.id=? AND c.config_id='default'",
     context.req.param("id"),
   );
   if (!run) return context.json({ error: "Collection run not found." }, 404);

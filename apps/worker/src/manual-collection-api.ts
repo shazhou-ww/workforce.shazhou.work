@@ -42,7 +42,7 @@ manualCollectionApi.get("/", async (context) => {
     const latest = await new CollectionStore(context.env.DB).one<{
       id: string;
     }>(
-      "SELECT id FROM collection_runs ORDER BY started_at DESC,id DESC LIMIT 1",
+      "SELECT r.id FROM collection_runs r JOIN config_revisions c ON c.id=r.revision_id WHERE c.config_id='default' ORDER BY r.started_at DESC,r.id DESC LIMIT 1",
     );
     latestRunId = latest?.id ?? null;
   }
@@ -97,7 +97,7 @@ manualCollectionApi.get("/runs/:id", verifyAuth(), async (context) => {
   }
   const store = new CollectionStore(context.env.DB);
   const run = await store.one<CollectionRun>(
-    "SELECT * FROM collection_runs WHERE id=?",
+    "SELECT r.* FROM collection_runs r JOIN config_revisions c ON c.id=r.revision_id WHERE r.id=? AND c.config_id='default'",
     context.req.param("id"),
   );
   if (!run) {

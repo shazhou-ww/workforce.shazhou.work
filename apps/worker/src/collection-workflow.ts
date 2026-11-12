@@ -51,7 +51,9 @@ export class ActivityCollection extends WorkflowEntrypoint<
               `Collection step ${name} rate limited; sleeping until reset.`,
             );
             const waitName = `${name} rate limit ${attempt}`;
-            const store = this.env.DB ? new CollectionStore(this.env.DB) : null;
+            const store = this.env.DB
+              ? new CollectionStore(this.env.DB, event.payload.userId)
+              : null;
             if (store) {
               await step.do(`${waitName} started`, {}, () =>
                 store.startWait(event.payload.runId, waitName),
@@ -70,15 +72,40 @@ export class ActivityCollection extends WorkflowEntrypoint<
         },
       });
     } catch (error) {
-      console.error(
-        "Activity collection failed; previous snapshot and publication lock retained.",
-        error,
-      );
-      if (this.env.DB) {
-        await new CollectionStore(this.env.DB).failed(
-          event.payload.runId,
-          "Collection failed. Inspect Workflow logs and retry this run.",
+      if (event.payload.userId)
+        console.error(
+          "Personal collection failed; previous complete snapshot retained.",
         );
+      else
+        console.error(
+          "Activity collection failed; previous snapshot and publication lock retained.",
+          error,
+        );
+      if (this.env.DB) {
+        const store = new CollectionStore(this.env.DB, event.payload.userId);
+        await store.failed(
+          event.payload.runId,
+          event.payload.userId && error instanceof Error
+            ? safePersonalFailure(error)
+            : "Collection failed. Inspect Workflow logs and retry this run.",
+        );
+        if (event.payload.userId)
+          await store
+            .statement(
+              "UPDATE personal_state SET active_run_id=NULL WHERE id=? AND active_run_id=?",
+              event.payload.userId,
+              event.payload.runId,
+            )
+            .run();
+      }
+
+      function safePersonalFailure(error: Error): string {
+        if (
+          error.message.includes("50000") ||
+          error.message.includes("50 repository")
+        )
+          return error.message;
+        return "Collection failed or access was stopped. Previous complete results are retained; check repository visibility, narrow the scope, or retry after the refresh cooldown.";
       }
       throw error;
     }

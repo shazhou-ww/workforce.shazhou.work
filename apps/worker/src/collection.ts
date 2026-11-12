@@ -20,11 +20,13 @@ import {
 } from "./github-client.js";
 import type { Bindings } from "./env.js";
 import type { CollectionPhase } from "@shazhou-work/workforce-contracts";
+import { assertPersonalActive } from "./platform.js";
 
 export interface CollectionParams {
   readonly runId: string;
   readonly revisionId: string;
   readonly until: string;
+  readonly userId?: string;
 }
 
 export interface CollectionSteps {
@@ -48,7 +50,7 @@ export async function runCollection(
 ): Promise<void> {
   const started = performance.now();
   const requests = { rest: 0, graphql: 0, httpErrors: 0, networkErrors: 0 };
-  const metrics = env.DB ? new CollectionStore(env.DB) : null;
+  const metrics = env.DB ? new CollectionStore(env.DB, params.userId) : null;
   const phases: Record<string, { attempts: number; activeMs: number }> = {};
   let currentStep: string | null = null;
   let outcome: "failed" | "completed" = "failed";
@@ -111,7 +113,17 @@ export async function runCollection(
         let failure: unknown;
         let completed = false;
         try {
+          if (params.userId) {
+            await assertPersonalActive(env, params.userId);
+            const existing = await metrics?.one<{ status: string }>(
+              "SELECT status FROM collection_runs WHERE id=?",
+              params.runId,
+            );
+            if (existing?.status === "cancelled")
+              throw new Error("This personal run was cancelled.");
+          }
           await callback();
+          if (params.userId) await assertPersonalActive(env, params.userId);
           completed = true;
         } catch (error) {
           failure = error;
@@ -176,7 +188,11 @@ async function collect(
 ): Promise<void> {
   if (!env.DB)
     throw new Error("The collection D1 binding DB is not configured.");
-  const store = new CollectionStore(env.DB);
+  const store = new CollectionStore(env.DB, params.userId);
+  if (params.userId) {
+    await assertPersonalActive(env, params.userId);
+    await store.config(params.revisionId);
+  }
   const client = createGitHubClient(env.GH_TOKEN ?? "", request);
   const clientForRepository = (name: string) =>
     createOwnerGitHubClient(env, name.split("/")[0] ?? "", request);
@@ -509,7 +525,8 @@ async function collect(
     if (!(await store.ownsRun(params.runId)))
       throw new Error("Publication lock was lost.");
     const snapshot = await store.snapshot(params.runId, hashEmail);
-    await env.STATS.put("activity:v1", JSON.stringify(snapshot));
+    if (params.userId) await store.publishPersonal(params.runId, snapshot);
+    else await env.STATS.put("activity:v1", JSON.stringify(snapshot));
   });
   await steps.do("record publication and release lock", async () => {
     await store.published(params.runId);

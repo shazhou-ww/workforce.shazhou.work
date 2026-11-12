@@ -72,6 +72,14 @@ describe("dashboard data loading", () => {
     };
     let activityCalls = 0;
     const request = vi.fn<typeof fetch>().mockImplementation((input, init) => {
+      if (input === "/api/platform/access")
+        return Promise.resolve(
+          Response.json({
+            signedIn: false,
+            status: "signed_out",
+            isAdmin: false,
+          }),
+        );
       if (input === "/api/activity/collection")
         return Promise.resolve(
           Response.json(
@@ -143,6 +151,14 @@ describe("dashboard data loading", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn<typeof fetch>().mockImplementation((input) => {
+        if (input === "/api/platform/access")
+          return Promise.resolve(
+            Response.json({
+              signedIn: false,
+              status: "signed_out",
+              isAdmin: false,
+            }),
+          );
         if (input === "/api/activity/collection")
           return Promise.resolve(
             Response.json({

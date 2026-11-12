@@ -60,7 +60,7 @@ export function AuthPage({ mode }: { readonly mode: AuthMode }) {
     <div className="auth-page">
       <header className="auth-masthead">
         <WorkforceBrand />
-        <span className="auth-header-note">公开仓库 · 只读看板</span>
+        <span className="auth-header-note">公开看板 · 邀请制个人空间</span>
       </header>
       <main className="auth-main">
         <div className="auth-container">
@@ -109,7 +109,7 @@ export function AuthPage({ mode }: { readonly mode: AuthMode }) {
                   WORKFORCE / {signingIn ? "ACCESS" : "SIGN OUT"}
                 </p>
                 <h1 id="auth-title">
-                  {signingIn ? "登录，继续管理。" : "准备退出登录？"}
+                  {signingIn ? "登录，查看我的统计。" : "准备退出登录？"}
                 </h1>
               </div>
             </div>
@@ -122,13 +122,13 @@ export function AuthPage({ mode }: { readonly mode: AuthMode }) {
                     : ""}
                   账号登录 Workforce。
                   <br />
-                  管理员可手动发起采集，更新工作动态。
+                  获邀用户可配置个人范围，查看仅本人可见的统计。
                 </>
               ) : (
                 <>
                   退出后将结束当前登录会话。
                   <br />
-                  你仍可浏览公开看板，管理操作需重新登录。
+                  公开看板仍可浏览；个人统计和管理员操作需重新登录。
                 </>
               )}
             </p>
@@ -220,9 +220,11 @@ export function AuthPage({ mode }: { readonly mode: AuthMode }) {
               <span>
                 {signingIn ? (
                   <>
-                    登录仅用于验证身份，采集权限由管理员配置。
+                    登录仅验证身份，不代表取得邀请资格。
                     <br />
-                    公开看板无需登录即可查看。
+                    个人服务需已验证邮箱匹配有效邀请。
+                    <br />
+                    公开看板无需登录；管理员仍可手动更新公开采集。
                   </>
                 ) : (
                   "仅退出 Workforce，不会退出你的身份提供方账号。"
@@ -236,7 +238,7 @@ export function AuthPage({ mode }: { readonly mode: AuthMode }) {
                 只是来看看？ <a href="/">直接浏览公开看板</a>
               </>
             ) : (
-              "工作动态始终公开，随时回来看看。"
+              "公开看板随时可看，个人统计仍仅本人可见。"
             )}
           </p>
         </div>

@@ -73,12 +73,25 @@ export interface CollectionAttempt {
 export class CollectionStore {
   private readonly db: D1DatabaseSession;
 
-  constructor(db: D1Database) {
+  constructor(
+    db: D1Database,
+    readonly scopeId: string = "default",
+  ) {
+    if (scopeId !== "default" && !/^[a-f\d-]{36}$/i.test(scopeId))
+      throw new Error("Invalid personal collection scope.");
     this.db = db.withSession("first-primary");
   }
 
   statement(sql: string, ...values: (string | number | null)[]) {
     return this.db.prepare(sql).bind(...values);
+  }
+
+  private get stateTable(): "collection_state" | "personal_state" {
+    return this.scopeId === "default" ? "collection_state" : "personal_state";
+  }
+
+  private get stateId(): string | number {
+    return this.scopeId === "default" ? 1 : this.scopeId;
   }
 
   async one<T>(
@@ -222,10 +235,12 @@ export class CollectionStore {
     const now = new Date().toISOString();
     await this.batch([
       this.statement(
-        "INSERT INTO config_revisions(id,config_id,repository_mode,created_at) VALUES (?,'default',?,?)",
+        "INSERT INTO config_revisions(id,config_id,repository_mode,created_at,enabled) VALUES (?,?,?,?,?)",
         id,
+        this.scopeId,
         config.repositoryMode,
         now,
+        Number(config.enabled),
       ),
       this.statement(
         "INSERT INTO config_accounts SELECT ?,value FROM json_each(?)",
@@ -253,9 +268,10 @@ export class CollectionStore {
         JSON.stringify(config.excludeRepositories),
       ),
       this.statement(
-        "UPDATE collection_configs SET active_revision_id=?,enabled=? WHERE id='default'",
+        "UPDATE collection_configs SET active_revision_id=?,enabled=? WHERE id=?",
         id,
         Number(config.enabled),
+        this.scopeId,
       ),
     ]);
     return id;
@@ -269,7 +285,8 @@ export class CollectionStore {
       revisionId: string | null;
       enabled: number;
     }>(
-      "SELECT active_revision_id AS revisionId,enabled FROM collection_configs WHERE id='default'",
+      "SELECT active_revision_id AS revisionId,enabled FROM collection_configs WHERE id=?",
+      this.scopeId,
     );
     if (!result)
       throw new Error("Apply the collection D1 migrations before use.");
@@ -279,7 +296,12 @@ export class CollectionStore {
   async config(revisionId: string): Promise<CollectionConfig> {
     const revision = await this.one<{
       repository_mode: CollectionConfig["repositoryMode"];
-    }>("SELECT repository_mode FROM config_revisions WHERE id=?", revisionId);
+      enabled: number;
+    }>(
+      "SELECT repository_mode,enabled FROM config_revisions WHERE id=? AND config_id=?",
+      revisionId,
+      this.scopeId,
+    );
     if (!revision)
       throw new Error("Collection configuration revision does not exist.");
     const identities = await this.rows<{
@@ -297,9 +319,8 @@ export class CollectionStore {
       "SELECT * FROM config_repository_rules WHERE revision_id=? ORDER BY full_name",
       revisionId,
     );
-    const active = await this.activeConfig();
     return {
-      enabled: active.enabled === 1,
+      enabled: revision.enabled === 1,
       repositoryMode: revision.repository_mode,
       accounts: accounts.map((row) => row.login),
       authorLogins: identities
@@ -324,8 +345,9 @@ export class CollectionStore {
     keyId: string,
   ): Promise<boolean> {
     const existing = await this.one<CollectionRun>(
-      "SELECT * FROM collection_runs WHERE id=?",
+      "SELECT r.* FROM collection_runs r JOIN config_revisions c ON c.id=r.revision_id WHERE r.id=? AND c.config_id=?",
       runId,
+      this.scopeId,
     );
     if (
       existing &&
@@ -334,7 +356,8 @@ export class CollectionStore {
       return false;
     const window = activityWindow(new Date(until));
     const state = await this.one<{ email_key_id: string | null }>(
-      "SELECT email_key_id FROM collection_state WHERE id=1",
+      `SELECT email_key_id FROM ${this.stateTable} WHERE id=?`,
+      this.stateId,
     );
     if (!state) throw new Error("Collection state is uninitialized.");
     if (state.email_key_id !== null && state.email_key_id !== keyId) {
@@ -344,23 +367,31 @@ export class CollectionStore {
     }
     await this.batch([
       this.statement(
-        "INSERT OR IGNORE INTO collection_runs(id,revision_id,status,since_at,until_at,started_at) VALUES (?,?,'queued',?,?,?)",
+        "INSERT OR IGNORE INTO collection_runs(id,revision_id,status,since_at,until_at,started_at) SELECT ?,?,'queued',?,?,? FROM config_revisions WHERE id=? AND config_id=?",
         runId,
         revisionId,
         window.since,
         window.until,
         new Date().toISOString(),
+        revisionId,
+        this.scopeId,
       ),
       this.statement(
-        "UPDATE collection_state SET active_run_id=?,email_key_id=? WHERE id=1 AND (active_run_id IS NULL OR active_run_id=?) AND ? >= COALESCE(publication_until,'')",
+        `UPDATE ${this.stateTable} SET active_run_id=?,email_key_id=? WHERE id=? AND (active_run_id IS NULL OR active_run_id=?) AND ? >= COALESCE(publication_until,'')
+         AND EXISTS(SELECT 1 FROM collection_runs r JOIN config_revisions c ON c.id=r.revision_id WHERE r.id=? AND c.config_id=? AND r.status NOT IN ('published','blocked','cancelled'))`,
         runId,
         keyId,
+        this.stateId,
         runId,
         window.until,
+        runId,
+        this.scopeId,
       ),
       this.statement(
-        "UPDATE collection_runs SET status=CASE WHEN (SELECT active_run_id FROM collection_state WHERE id=1)=id THEN 'collecting' ELSE 'blocked' END,error_message=NULL WHERE id=? AND status IN ('queued','failed')",
+        `UPDATE collection_runs SET status=CASE WHEN (SELECT active_run_id FROM ${this.stateTable} WHERE id=?)=id THEN 'collecting' ELSE 'blocked' END,error_message=NULL WHERE id=? AND status IN ('queued','failed') AND revision_id IN (SELECT id FROM config_revisions WHERE config_id=?)`,
+        this.stateId,
         runId,
+        this.scopeId,
       ),
     ]);
     return await this.ownsRun(runId);
@@ -373,26 +404,30 @@ export class CollectionStore {
   ): Promise<void> {
     const window = activityWindow(new Date(until));
     await this.statement(
-      "INSERT OR IGNORE INTO collection_runs(id,revision_id,status,since_at,until_at,started_at) VALUES (?,?,'queued',?,?,?)",
+      "INSERT OR IGNORE INTO collection_runs(id,revision_id,status,since_at,until_at,started_at) SELECT ?,?,'queued',?,?,? FROM config_revisions WHERE id=? AND config_id=?",
       runId,
       revisionId,
       window.since,
       window.until,
       new Date().toISOString(),
+      revisionId,
+      this.scopeId,
     ).run();
   }
 
   async ownsRun(runId: string): Promise<boolean> {
     const state = await this.one<{ active_run_id: string | null }>(
-      "SELECT active_run_id FROM collection_state WHERE id=1",
+      `SELECT active_run_id FROM ${this.stateTable} WHERE id=?`,
+      this.stateId,
     );
     return state?.active_run_id === runId;
   }
 
   async run(id: string): Promise<CollectionRun> {
     const row = await this.one<CollectionRun>(
-      "SELECT * FROM collection_runs WHERE id=?",
+      "SELECT r.* FROM collection_runs r JOIN config_revisions c ON c.id=r.revision_id WHERE r.id=? AND c.config_id=?",
       id,
+      this.scopeId,
     );
     if (!row) throw new Error("Collection run does not exist.");
     return row;
@@ -449,6 +484,16 @@ export class CollectionStore {
       );
     }
     if (statements.length > 0) await this.batch(statements);
+    if (this.scopeId !== "default") {
+      const count = await this.one<{ count: number }>(
+        "SELECT count(*) AS count FROM run_repositories WHERE run_id=?",
+        runId,
+      );
+      if ((count?.count ?? 0) > 50)
+        throw new Error(
+          "Expanded repository scope exceeds the 50 repository limit. Narrow the scope; previous results are retained.",
+        );
+    }
   }
 
   repositories(runId: string) {
@@ -508,6 +553,12 @@ export class CollectionStore {
   }
 
   syncState(repositoryId: number) {
+    if (this.scopeId !== "default")
+      return this.one<SyncState>(
+        "SELECT * FROM personal_repository_sync_state WHERE scope_id=? AND repository_id=?",
+        this.scopeId,
+        repositoryId,
+      );
     return this.one<SyncState>(
       "SELECT * FROM repository_sync_state WHERE repository_id=?",
       repositoryId,
@@ -587,6 +638,16 @@ export class CollectionStore {
     },
   ): Promise<void> {
     if (!repo.history_id) throw new Error("History was not initialized.");
+    if (this.scopeId !== "default") {
+      const used = await this.one<{ count: number }>(
+        "SELECT COALESCE(sum(received_commits),0) AS count FROM run_repositories WHERE run_id=?",
+        repo.run_id,
+      );
+      if ((used?.count ?? 0) - repo.received_commits + next.received > 50_000)
+        throw new Error(
+          "History budget exceeded (50000 commits per run). Narrow the repository scope; previous results are retained.",
+        );
+    }
     const rows: {
       sha: string;
       committedAt: string;
@@ -695,7 +756,10 @@ export class CollectionStore {
         run.since_at,
       ),
       this.statement(
-        "INSERT INTO repository_sync_state VALUES (?,?,?,?,?,?) ON CONFLICT(repository_id) DO UPDATE SET default_branch=excluded.default_branch,head_sha=excluded.head_sha,history_id=excluded.history_id,last_successful_run_id=excluded.last_successful_run_id,updated_at=excluded.updated_at",
+        this.scopeId === "default"
+          ? "INSERT INTO repository_sync_state VALUES (?,?,?,?,?,?) ON CONFLICT(repository_id) DO UPDATE SET default_branch=excluded.default_branch,head_sha=excluded.head_sha,history_id=excluded.history_id,last_successful_run_id=excluded.last_successful_run_id,updated_at=excluded.updated_at"
+          : "INSERT INTO personal_repository_sync_state VALUES (?,?,?,?,?,?,?) ON CONFLICT(scope_id,repository_id) DO UPDATE SET default_branch=excluded.default_branch,head_sha=excluded.head_sha,history_id=excluded.history_id,last_successful_run_id=excluded.last_successful_run_id,updated_at=excluded.updated_at",
+        ...(this.scopeId === "default" ? [] : [this.scopeId]),
         repo.repository_id,
         repo.default_branch,
         repo.head_sha,
@@ -846,28 +910,59 @@ export class CollectionStore {
       throw new Error("Collection no longer owns the publication lock.");
     await this.batch([
       this.statement(
-        "UPDATE collection_runs SET status='ready',completed_at=? WHERE id=?",
+        "UPDATE collection_runs SET status='ready',completed_at=? WHERE id=? AND status!='cancelled' AND revision_id IN (SELECT id FROM config_revisions WHERE config_id=?)",
         new Date().toISOString(),
         runId,
+        this.scopeId,
       ),
       this.statement(
-        "UPDATE collection_state SET publication_until=(SELECT until_at FROM collection_runs WHERE id=?) WHERE id=1 AND active_run_id=?",
+        `UPDATE ${this.stateTable} SET publication_until=(SELECT until_at FROM collection_runs WHERE id=?) WHERE id=? AND active_run_id=?`,
         runId,
+        this.stateId,
         runId,
       ),
     ]);
   }
 
+  async publishPersonal(
+    runId: string,
+    snapshot: ActivitySnapshot,
+  ): Promise<void> {
+    if (this.scopeId === "default")
+      throw new Error("Personal publication requires a personal scope.");
+    const updated = await this.one<{ id: string }>(
+      `UPDATE personal_state SET snapshot_json=?,published_run_id=?
+       WHERE id=? AND active_run_id=?
+       AND EXISTS(SELECT 1 FROM personal_users WHERE id=? AND status='active')
+       AND EXISTS(SELECT 1 FROM collection_runs r JOIN config_revisions c ON c.id=r.revision_id
+         WHERE r.id=? AND r.status='ready' AND c.config_id=?)
+       RETURNING id`,
+      JSON.stringify(snapshot),
+      runId,
+      this.scopeId,
+      runId,
+      this.scopeId,
+      runId,
+      this.scopeId,
+    );
+    if (!updated)
+      throw new Error(
+        "Personal publication was stopped by current authorization or run ownership.",
+      );
+  }
+
   async published(runId: string): Promise<void> {
     await this.batch([
       this.statement(
-        "UPDATE collection_runs SET status='published',published_at=? WHERE id=?",
+        "UPDATE collection_runs SET status='published',published_at=? WHERE id=? AND status!='cancelled' AND revision_id IN (SELECT id FROM config_revisions WHERE config_id=?)",
         new Date().toISOString(),
         runId,
+        this.scopeId,
       ),
       this.statement(
-        "UPDATE collection_state SET active_run_id=NULL,published_run_id=? WHERE id=1 AND active_run_id=?",
+        `UPDATE ${this.stateTable} SET active_run_id=NULL,published_run_id=? WHERE id=? AND active_run_id=?`,
         runId,
+        this.stateId,
         runId,
       ),
     ]);
@@ -875,20 +970,24 @@ export class CollectionStore {
 
   async failed(runId: string, message: string): Promise<void> {
     await this.statement(
-      "UPDATE collection_runs SET status=CASE WHEN status='ready' THEN 'ready' ELSE 'failed' END,error_message=? WHERE id=? AND status NOT IN ('published','blocked','cancelled')",
+      "UPDATE collection_runs SET status=CASE WHEN status='ready' THEN 'ready' ELSE 'failed' END,error_message=? WHERE id=? AND status NOT IN ('published','blocked','cancelled') AND revision_id IN (SELECT id FROM config_revisions WHERE config_id=?)",
       message,
       runId,
+      this.scopeId,
     ).run();
   }
 
   async cancel(runId: string): Promise<void> {
     await this.batch([
       this.statement(
-        "UPDATE collection_runs SET status='cancelled' WHERE id=? AND id=(SELECT active_run_id FROM collection_state WHERE id=1)",
+        `UPDATE collection_runs SET status='cancelled' WHERE id=? AND id=(SELECT active_run_id FROM ${this.stateTable} WHERE id=?) AND revision_id IN (SELECT id FROM config_revisions WHERE config_id=?)`,
         runId,
+        this.stateId,
+        this.scopeId,
       ),
       this.statement(
-        "UPDATE collection_state SET active_run_id=NULL WHERE id=1 AND active_run_id=?",
+        `UPDATE ${this.stateTable} SET active_run_id=NULL WHERE id=? AND active_run_id=?`,
+        this.stateId,
         runId,
       ),
     ]);

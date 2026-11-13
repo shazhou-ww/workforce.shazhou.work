@@ -19,7 +19,7 @@
 ### Deployment steps
 
 - [ ] **D-S01:** 准备可比较的线上验证
-- [ ] **D-S02:** 经现有流程发布兼容候选
+- [x] **D-S02:** 经现有流程发布兼容候选
 - [ ] **D-S03:** 验证渐进结果与权限边界
 
 ### Deployment acceptance criteria

@@ -228,7 +228,12 @@ administrator never publishes their results. It remains separate from the opt-in
 `/u/<github-login>` profiles and has no frontend entry. This release preserves
 that existing production API.
 
-The account menu's settings action opens a modal panel, not a sidebar or a
+The account menu's settings action opens a modal panel with four subpages:
+GitHub account, public repositories (the default), author identities, and
+private repositories. Switching subpages preserves unsaved edits; public
+settings save together, while private authorization is saved independently and
+takes effect immediately. Validation opens the affected subpage and focuses the
+invalid field. Detailed rules and token instructions are expandable. There is no
 separate configuration route. Its primary GitHub account comes from OAuth and is
 read-only. Users can select their public repositories and joined organizations,
 add other public account scopes, and add or remove individual included/excluded

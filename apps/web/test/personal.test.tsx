@@ -353,6 +353,57 @@ function configBackend(discoveryStatus = 200, github = access.github) {
   });
 }
 describe("personal configuration", () => {
+  it("shows one settings subpage at a time and preserves drafts when switching", async () => {
+    const request = configBackend();
+    vi.stubGlobal("fetch", request);
+    const { container } = await render(
+      <PersonalConfiguration
+        access={access}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+      />,
+    );
+    const currentPage = () =>
+      container.querySelector('[aria-current="page"]')?.textContent;
+    const visiblePages = () =>
+      [...container.querySelectorAll<HTMLElement>('[id^="config-page-"]')]
+        .filter((element) => !element.hidden)
+        .map((element) => element.getAttribute("aria-label"));
+    expect(currentPage()).toBe("公开仓库");
+    expect(visiblePages()).toEqual(["公开仓库"]);
+    await enter(field(container, "includeRepositories"), "octocat/draft");
+    await click(container, "作者身份");
+    expect(visiblePages()).toEqual(["作者身份"]);
+    await enter(field(container, "authorEmails"), "old@example.invalid");
+    await click(container, "GitHub 账号");
+    expect(visiblePages()).toEqual(["GitHub 账号"]);
+    await click(container, "私有仓库");
+    expect(visiblePages()).toEqual(["私有仓库"]);
+    expect(
+      [...container.querySelectorAll("button")].some(
+        (button) => button.textContent === "保存配置",
+      ),
+    ).toBe(false);
+    await act(async () => {
+      container
+        .querySelector("form")!
+        .dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        );
+    });
+    expect(request.mock.calls.some(([, init]) => init?.method === "PUT")).toBe(
+      false,
+    );
+    await click(container, "公开仓库");
+    expect(field(container, "includeRepositories").value).toBe("octocat/draft");
+    await enter(field(container, "includeRepositories"), "");
+    await click(container, "保存配置");
+    expect(currentPage()).toBe("作者身份");
+    expect(visiblePages()).toEqual(["作者身份"]);
+    expect(document.activeElement).toBe(field(container, "authorEmails"));
+    expect(field(container, "authorEmails").value).toBe("old@example.invalid");
+  });
+
   it("adds and saves managed-user scope while retaining the read-only primary author", async () => {
     const managedAccess: PlatformAccessResponse = {
       ...access,
@@ -567,12 +618,19 @@ describe("personal configuration", () => {
         new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
       );
     });
+    await click(container, "作者身份");
     await click(container, "保存配置");
     expect(container.textContent).toContain("指定仓库不是公开仓库");
     expect(container.textContent).toContain("old-address@example.invalid");
     expect(document.activeElement).toBe(
       field(container, "includeRepositories"),
     );
+    expect(container.querySelector('[aria-current="page"]')?.textContent).toBe(
+      "公开仓库",
+    );
+    expect(
+      container.querySelector<HTMLElement>("#config-page-repositories")?.hidden,
+    ).toBe(false);
     expect(onSaved).not.toHaveBeenCalled();
   });
 

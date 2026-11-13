@@ -107,33 +107,35 @@ export function PrivateRepositories({
   if (!configure && !data?.connected && !error) return null;
   return (
     <section
-      className={configure ? "config-section" : "notice"}
+      className={configure ? "config-section private-settings" : "notice"}
       aria-label="仅本人可见的私有仓库统计"
     >
       <h3>私有仓库 · 仅本人可见</h3>
       <p className="field-note">
-        私有统计与公开统计分别采集、分别显示，绝不加入主页分享或公共 API。
-        仅统计 GitHub
-        主账号作为主要作者的默认分支提交，不使用历史账号或邮箱匹配。
+        与公开统计独立，不参与主页分享。仅匹配主账号在默认分支的提交。
       </p>
       {configure ? (
         <>
-          <p className="field-note">
-            在 GitHub 创建 fine-grained personal access
-            token，选择一个资源所有者和 Only select
-            repositories，仅授权准备统计的仓库；设置有效期， Contents 与
-            Metadata 使用 Read-only，其他权限不授予。 组织可能需要审批或
-            SSO；待审批、企业内部仓库或不支持的协作者场景无法使用。 不接受
-            classic PAT，不扩大登录 OAuth 权限。服务器只能确认令牌类型、
-            账号和读取权限，不能证明没有额外写权限；本服务仅执行读取操作。
-          </p>
-          <a
-            href="https://github.com/settings/personal-access-tokens/new"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            创建指定仓库只读令牌
-          </a>
+          <details className="config-help">
+            <summary>如何创建只读令牌</summary>
+            <p>
+              创建 fine-grained PAT，选择一个资源所有者和 Only select
+              repositories，仅勾选目标仓库并设置有效期。Contents 和 Metadata
+              设为 Read-only，不授予其他权限。
+            </p>
+            <p>
+              组织可能要求审批或 SSO；不支持待审批、internal
+              仓库及部分协作者场景。 不接受 classic PAT，不扩大登录 OAuth 权限。
+              服务器不能证明没有额外写权限，本服务仅执行读取。
+            </p>
+            <a
+              href="https://github.com/settings/personal-access-tokens/new"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              创建指定仓库只读令牌
+            </a>
+          </details>
           <label className="field-label" htmlFor="private-token">
             Fine-grained PAT（已连接时留空复用）
           </label>
@@ -145,7 +147,7 @@ export function PrivateRepositories({
             onChange={(event) => setToken(event.target.value)}
           />
           <label className="field-label" htmlFor="private-repository-names">
-            明确选择 1–10 个私有仓库（owner/name，空格或逗号分隔）
+            私有仓库（1–10 个，owner/name）
           </label>
           <input
             id="private-repository-names"
@@ -153,6 +155,7 @@ export function PrivateRepositories({
             placeholder={data?.repositories.map((repo) => repo.name).join(", ")}
             onChange={(event) => setNames(event.target.value)}
           />
+          <p className="field-note">多个仓库用空格或逗号分隔。</p>
           <button
             type="button"
             className="secondary-button"
@@ -174,12 +177,17 @@ export function PrivateRepositories({
             断开私有授权并删除已有私有结果
           </button>
           <p className="field-note">
-            此处单独保存，立即生效，不随下方公开配置的保存或取消撤回。
-            替换、修改选择或断开会删除旧结果并使正在采集的任务失效。
-            令牌仅在服务器加密保存，不回显、不保存到浏览器草稿； 断开不会撤销
-            GitHub 令牌，请同时在 GitHub 撤销不再使用的令牌。 GitHub
-            撤权或权限检查失败时隐藏旧结果；重新连接或断开将删除它们。
+            单独保存并立即生效，取消配置不撤回。修改或断开会删除旧结果、终止当前采集。
           </p>
+          <details className="config-help">
+            <summary>令牌与数据安全</summary>
+            <p>
+              令牌仅在服务器加密保存，不回显、不写入浏览器草稿。 断开后还需在
+              GitHub 撤销令牌。
+              撤权或权限检查失败时隐藏旧结果，重新连接或断开后删除。
+              私有统计不进入公共 API，也不使用历史账号或邮箱匹配。
+            </p>
+          </details>
         </>
       ) : null}
       {data?.connected ? (

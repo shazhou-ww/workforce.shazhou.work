@@ -1337,6 +1337,14 @@ describe("personal dashboard", () => {
     expect(container.textContent).toContain("仓库不可用");
     expect(container.textContent).toContain("当前结果来自上一配置");
     expect(container.textContent).not.toContain("统计已更新");
+    const failureNotice = Array.from(
+      container.querySelectorAll(".dismissible-notice"),
+    ).find((element) => element.textContent?.includes("仓库不可用"));
+    const close = failureNotice?.querySelector<HTMLButtonElement>("button");
+    expect(close?.getAttribute("aria-label")).toBe("关闭提示");
+    await act(async () => close?.click());
+    expect(container.textContent).not.toContain("仓库不可用");
+    expect(container.textContent).toContain("当前结果来自上一配置");
   });
 
   it("publishes only a complete personal snapshot, polling queued tasks and preserving prior results", async () => {

@@ -66,6 +66,40 @@ function chartLineSegments(container: HTMLElement) {
 }
 
 describe("dashboard data loading", () => {
+  it("dismisses banners independently, keeps them hidden on rerenders and shows new warnings", () => {
+    Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    const render = (refreshError: string) => {
+      act(() => {
+        root.render(
+          <Dashboard
+            state={{ kind: "ready", snapshot }}
+            now={now + 4 * 60 * 60 * 1000}
+            refreshError={refreshError}
+          />,
+        );
+      });
+    };
+    try {
+      render("First failure");
+      const buttons = container.querySelectorAll<HTMLButtonElement>(
+        'button[aria-label="关闭提示"]',
+      );
+      expect(buttons).toHaveLength(2);
+      act(() => buttons[0]!.click());
+      expect(container.textContent).not.toContain("First failure");
+      expect(container.textContent).toContain("数据截止");
+      render("First failure");
+      expect(container.textContent).not.toContain("First failure");
+      render("New failure");
+      expect(container.textContent).toContain("New failure");
+      expect(container.textContent).toContain("owner/project");
+    } finally {
+      act(() => root.unmount());
+    }
+  });
+
   it("refreshes a public profile without exposing owner collection controls", async () => {
     vi.useFakeTimers();
     Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });

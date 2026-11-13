@@ -12,7 +12,7 @@ import {
   type ReactNode,
 } from "react";
 import { ApiError, fetchJson } from "./api.js";
-import { Dashboard, type DashboardState } from "./ui.js";
+import { Dashboard, DismissibleNotice, type DashboardState } from "./ui.js";
 
 export function PersonalDashboard({
   controls,
@@ -299,7 +299,7 @@ export function PersonalDashboard({
       notice={
         <>
           {error ? (
-            <p role="alert" className="stale-notice">
+            <DismissibleNotice key={`error:${error}`} role="alert">
               无法读取或更新个人统计：{error}{" "}
               <button
                 className="text-button"
@@ -307,17 +307,19 @@ export function PersonalDashboard({
               >
                 重试读取
               </button>
-            </p>
+            </DismissibleNotice>
           ) : null}
           {collectionNotice ? (
-            <p role="status" className="stale-notice">
+            <DismissibleNotice
+              key={`collection:${progress?.runId}:${collectionNotice}`}
+            >
               {collectionNotice}
-            </p>
+            </DismissibleNotice>
           ) : null}
           {activity?.stale ? (
-            <p role="status" className="stale-notice">
+            <DismissibleNotice key={`config:${activity.currentRevisionId}`}>
               配置已更新，当前结果来自上一配置。下次成功采集后替换，保存本身不代表采集完成。
-            </p>
+            </DismissibleNotice>
           ) : null}
         </>
       }

@@ -8,7 +8,11 @@ import { personalRepositoryLimit } from "@shazhou-work/workforce-contracts";
 import { runCollection, type CollectionParams } from "./collection.js";
 import { CollectionStore } from "./collection-store.js";
 import { GitHubError } from "./github-client.js";
+import { PersonalError } from "./platform.js";
 import type { Bindings } from "./env.js";
+
+const githubReconnectFailure =
+  "GitHub authorization expired or was revoked. Reconnect GitHub in settings, then refresh after the cooldown. Previous complete results are retained.";
 
 export class ActivityCollection extends WorkflowEntrypoint<
   Bindings,
@@ -40,6 +44,8 @@ export class ActivityCollection extends WorkflowEntrypoint<
                   if (error instanceof GitHubError) {
                     if (error.retryAt !== null)
                       return { retryAt: error.retryAt };
+                    if (event.payload.userId && error.status === 401)
+                      throw new NonRetryableError(githubReconnectFailure);
                     if (error.status < 500)
                       throw new NonRetryableError(error.message);
                   }
@@ -101,6 +107,12 @@ export class ActivityCollection extends WorkflowEntrypoint<
       }
 
       function safePersonalFailure(error: Error): string {
+        if (
+          (error instanceof PersonalError &&
+            error.code === "github_connection_required") ||
+          error.message.includes(githubReconnectFailure)
+        )
+          return githubReconnectFailure;
         if (
           error.message.includes("50000") ||
           error.message.includes(`${personalRepositoryLimit} repository`)

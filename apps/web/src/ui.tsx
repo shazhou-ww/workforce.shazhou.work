@@ -35,6 +35,30 @@ const axisNumber = new Intl.NumberFormat("zh-CN", {
   maximumFractionDigits: 1,
 });
 
+export function DismissibleNotice({
+  children,
+  role = "status",
+}: {
+  readonly children: ReactNode;
+  readonly role?: "alert" | "status";
+}) {
+  const [dismissed, setDismissed] = useState(false);
+  if (dismissed) return null;
+  return (
+    <div className="stale-notice dismissible-notice" role={role}>
+      <span>{children}</span>
+      <button
+        type="button"
+        className="notice-dismiss"
+        aria-label="关闭提示"
+        onClick={() => setDismissed(true)}
+      >
+        <span aria-hidden="true">&times;</span>
+      </button>
+    </div>
+  );
+}
+
 export function Dashboard({
   state,
   now = Date.now(),
@@ -60,9 +84,9 @@ export function Dashboard({
     <div className="shell">
       <SiteHeader>{collectionControl}</SiteHeader>
       {state.kind === "ready" && refreshError ? (
-        <p className="stale-notice" role="alert">
+        <DismissibleNotice key={refreshError} role="alert">
           刷新统计失败，已保留上次完整结果：{refreshError}
-        </p>
+        </DismissibleNotice>
       ) : null}
       <main>
         <header className="page-heading" aria-labelledby="page-title">
@@ -186,10 +210,10 @@ function ActivityDashboard({
   return (
     <>
       {stale ? (
-        <p className="stale-notice" role="status">
+        <DismissibleNotice key={snapshot.until}>
           数据截止 {timestamp.format(new Date(snapshot.until))}，已超过 3 小时。
           下方保留上一次完整结果，并非实时数据。
-        </p>
+        </DismissibleNotice>
       ) : null}
 
       <div className="activity-workspace">

@@ -8,6 +8,7 @@ import { parseConfig } from "../src/collection-config.js";
 import entry from "../src/entry.js";
 import type { Bindings } from "../src/env.js";
 import { TestD1 } from "./d1.js";
+import { PersonalError, registerIdentity } from "../src/platform.js";
 
 vi.mock("../src/collection.js", () => ({ runCollection: vi.fn() }));
 
@@ -129,6 +130,110 @@ describe("durable collection orchestration", () => {
     expect((await store.run("run")).status).toBe("failed");
     expect(await store.ownsRun("run")).toBe(true);
   });
+
+  it.each(["rejected", "unreadable", "forbidden"] as const)(
+    "records actionable personal credential failures without exposing provider details: %s",
+    async (failure) => {
+      const { env, event, step, execute, sleepUntil } = setup();
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const db = new TestD1();
+      databases.push(db);
+      const personalEnv = {
+        ...env,
+        DB: db,
+        COLLECTION_ADMIN_GITHUB_IDS: "101",
+      };
+      const userId = await registerIdentity(personalEnv, "github", "101", []);
+      if (!userId) throw new Error("Personal test user was not created.");
+      const store = new CollectionStore(db, userId);
+      const revisionId = await store.saveConfig(
+        parseConfig({
+          enabled: true,
+          accounts: ["owner"],
+          authorLogins: ["owner"],
+          authorEmails: [],
+          repositoryMode: "all_owned_public",
+          includeRepositories: [],
+          excludeRepositories: [],
+        }),
+      );
+      await store.begin("run", revisionId, event.payload.until, "key");
+      await store
+        .statement(
+          "UPDATE personal_state SET snapshot_json=? WHERE id=?",
+          '{"retained":true}',
+          userId,
+        )
+        .run();
+      const error =
+        failure === "unreadable"
+          ? new PersonalError(
+              "github_connection_required",
+              "Stored credential is unavailable.",
+              409,
+            )
+          : new GitHubError(
+              failure === "rejected" ? 401 : 403,
+              null,
+              "/orgs/private-scope/repos",
+              null,
+              "sensitive-provider-detail",
+            );
+      // Workflow replay can restore a step failure as a plain Error.
+      execute.mockImplementation(
+        async (
+          _name: string,
+          _options: unknown,
+          callback: () => Promise<void>,
+        ) => {
+          try {
+            await callback();
+          } catch (error) {
+            throw new Error(`NonRetryableError: ${String(error)}`, {
+              cause: error,
+            });
+          }
+        },
+      );
+      const callback = vi.fn().mockRejectedValue(error);
+      vi.mocked(runCollection).mockImplementation(
+        async (_env, _params, steps) => {
+          if (failure === "unreadable") throw error;
+          await steps.do("discover page", callback);
+        },
+      );
+      const workflow = new ActivityCollection(
+        {} as ExecutionContext,
+        personalEnv,
+      );
+      await expect(
+        workflow.run(
+          { ...event, payload: { ...event.payload, revisionId, userId } },
+          step,
+        ),
+      ).rejects.toThrow();
+      const run = await store.one<{ status: string; error_message: string }>(
+        "SELECT status,error_message FROM collection_runs WHERE id='run'",
+      );
+      expect(run?.status).toBe("failed");
+      expect(run?.error_message).toContain(
+        failure === "forbidden"
+          ? "check repository visibility"
+          : "Reconnect GitHub in settings",
+      );
+      expect(run?.error_message).not.toMatch(
+        /private-scope|sensitive-provider-detail/,
+      );
+      expect(
+        await store.one(
+          "SELECT active_run_id,snapshot_json FROM personal_state WHERE id=?",
+          userId,
+        ),
+      ).toEqual({ active_run_id: null, snapshot_json: '{"retained":true}' });
+      expect(sleepUntil).not.toHaveBeenCalled();
+      expect(callback).toHaveBeenCalledTimes(failure === "unreadable" ? 0 : 1);
+    },
+  );
 
   it("keeps scheduled collection disabled by default", async () => {
     const { env } = setup();

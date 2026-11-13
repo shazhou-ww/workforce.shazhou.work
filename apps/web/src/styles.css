@@ -965,6 +965,38 @@ h1 {
   font-size: 14px;
   line-height: 1.8;
 }
+.dismissible-notice {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.dismissible-notice > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.notice-dismiss {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+}
+.notice-dismiss:hover {
+  background: #79490714;
+}
+.notice-dismiss:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
 .activity-workspace {
   background: var(--color-surface);
   border-radius: 10px;

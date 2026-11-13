@@ -295,6 +295,19 @@ require reconnecting GitHub; authorization failures remain explicit. Repository
 visibility checks still exclude private repositories even if OAuth can read
 them.
 
+If personal collection fails with GitHub HTTP 401, its saved OAuth credential is
+no longer accepted; waiting for a rate-limit reset will not repair it. Open
+settings, reconnect the same GitHub account (and reauthorize organization access
+when needed), then refresh after the cooldown. Collection failures caused by
+rejected or unreadable credentials display this recovery action and retain the
+previous complete snapshot. A valid login session alone does not establish that
+the saved GitHub credential is still usable.
+
+Dashboard information and warning banners can be dismissed individually with
+their close buttons. Dismissal only affects the current page; it does not change
+collection state or remove stored errors. New messages, runs, configuration
+revisions, or stale snapshots show their corresponding notice again.
+
 GitHub access credentials are encrypted server-side in D1 with AES-GCM using a
 domain-separated HKDF key derived from `AUTH_SECRET`. Rotating that secret
 invalidates existing sessions and requires GitHub reconnection. There is no new

@@ -1267,6 +1267,34 @@ describe("OAuth identities and protected credentials", () => {
     });
   });
 
+  it("requests organization access during ordinary GitHub sign-in with CSRF and state protection", async () => {
+    const { env } = fixture();
+    const csrfResponse = await app.request(`${origin}/api/auth/csrf`, {}, env);
+    const { csrfToken } = await csrfResponse.json<{ csrfToken: string }>();
+    const cookie = csrfResponse.headers
+      .getSetCookie()
+      .map((entry) => entry.split(";")[0])
+      .join("; ");
+    const response = await app.request(
+      `${origin}/api/auth/signin/github`,
+      {
+        method: "POST",
+        headers: { Cookie: cookie },
+        body: new URLSearchParams({ csrfToken, callbackUrl: origin }),
+      },
+      env,
+    );
+    expect(response.status).toBe(302);
+    const redirect = new URL(response.headers.get("location")!);
+    expect(redirect.searchParams.get("scope")?.split(" ")).toEqual(
+      expect.arrayContaining(["read:user", "user:email", "read:org"]),
+    );
+    expect(redirect.searchParams.get("state")).toBeTruthy();
+    expect(redirect.searchParams.get("redirect_uri")).toBe(
+      `${origin}/api/auth/callback/github`,
+    );
+  });
+
   it("links explicitly with session-owned expiring one-use intent and unchanged callback URL", async () => {
     const { env, store } = fixture();
     await invite(env);
@@ -1354,7 +1382,7 @@ describe("OAuth identities and protected credentials", () => {
     );
   });
 
-  it("keeps basic GitHub connection returns separate from organization authorization context", async () => {
+  it("requests organization access for a regular connection without changing its return context", async () => {
     const { env } = fixture();
     const id = await user(env);
     const cookie = await session(id);
@@ -1380,7 +1408,7 @@ describe("OAuth identities and protected credentials", () => {
       "/?personal=configure",
     );
     expect(body).not.toContain("github=organizations");
-    expect(body).not.toContain("read%3Aorg");
+    expect(body).toContain("read%3Aorg");
   });
 
   it("rejects cross-session, expired and conflicting link intents without linking by email", async () => {

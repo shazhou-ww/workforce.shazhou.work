@@ -320,8 +320,11 @@ into another user's space.
 | `POST /api/admin/invitations/:id`                     | Revoke, suspend or restore using an explicit action                                        |
 
 Use the existing GitHub OAuth callback `/api/auth/callback/github`. GitHub login
-uses verified email addresses to claim invitations; organization discovery asks
-for `read:org` separately. Enterprise-managed GitHub usernames with an
+uses verified email addresses to claim invitations. Both sign-in and explicit
+GitHub connections request `read:user user:email read:org`, so organization
+discovery works without a second authorization. Existing connections lacking
+`read:org` can use the additional organization authorization action; refreshing
+a token does not add permissions. Enterprise-managed GitHub usernames with an
 underscore suffix are accepted for sign-in, scope accounts, historical authors,
 repository owners and opt-in public profile addresses. These paths share
 username validation (at most 39 characters, alphanumeric segments separated by

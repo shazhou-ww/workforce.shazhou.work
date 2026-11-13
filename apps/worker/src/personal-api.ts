@@ -25,6 +25,7 @@ import {
   linkIntentId,
   requestToken,
   collectionAdminIds,
+  githubOAuthScope,
 } from "./auth.js";
 import { CollectionInputError, parseConfig } from "./collection-config.js";
 import { CollectionStore } from "./collection-store.js";
@@ -782,10 +783,7 @@ personalApi.get("/personal/github/authorize", async (context) => {
   const csrf = await response.json<{ csrfToken: string }>();
   for (const cookie of response.headers.getSetCookie())
     context.header("Set-Cookie", cookie, { append: true });
-  const scope = intent.organizations
-    ? "read:user user:email read:org"
-    : "read:user user:email";
-  const action = `/api/auth/signin/github?scope=${encodeURIComponent(scope)}`;
+  const action = `/api/auth/signin/github?scope=${encodeURIComponent(githubOAuthScope)}`;
   const callbackUrl = intent.organizations
     ? "/?personal=configure&github=organizations"
     : "/?personal=configure";

@@ -20,6 +20,8 @@ import {
   platformAccess,
 } from "./platform.js";
 
+export const githubOAuthScope = "read:user user:email read:org";
+
 export function linkCookieName(request: Request) {
   return new URL(request.url).protocol === "https:"
     ? "__Host-workforce-link"
@@ -272,7 +274,7 @@ function createAuthProviders(env: Bindings): Provider[] {
         clientId: github.clientId,
         clientSecret: github.clientSecret,
         checks: ["state"],
-        authorization: { params: { scope: "read:user user:email" } },
+        authorization: { params: { scope: githubOAuthScope } },
       }),
     );
   }

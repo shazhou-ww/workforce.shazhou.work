@@ -6,6 +6,23 @@ import {
 } from "../src/github-client.js";
 
 describe("owner-specific GitHub credentials", () => {
+  it("resolves the current credential for every request rather than retaining a rotated token", async () => {
+    const token = vi
+      .fn<() => Promise<string>>()
+      .mockResolvedValueOnce("before-renewal")
+      .mockResolvedValueOnce("after-renewal");
+    const request = vi
+      .fn<typeof fetch>()
+      .mockImplementation(() => Promise.resolve(Response.json({})));
+    const client = createGitHubClient(token, request);
+    await client.github("/user");
+    await client.github("/user");
+    expect(
+      request.mock.calls.map(([, init]) =>
+        new Headers(init?.headers).get("authorization"),
+      ),
+    ).toEqual(["Bearer before-renewal", "Bearer after-renewal"]);
+  });
   it("normalizes owner names and selects only the matching GitHub secret", async () => {
     const request = vi
       .fn<typeof fetch>()

@@ -14,6 +14,8 @@ import { failPrivateCollection } from "./private-repositories.js";
 
 const githubReconnectFailure =
   "GitHub authorization expired or was revoked. Reconnect GitHub in settings, then refresh after the cooldown. Previous complete results are retained.";
+const githubRefreshFailure =
+  "GitHub token renewal is temporarily unavailable. Retry shortly; reconnect GitHub if it continues to fail. Previous complete results are retained.";
 
 export class ActivityCollection extends WorkflowEntrypoint<
   Bindings,
@@ -65,6 +67,12 @@ export class ActivityCollection extends WorkflowEntrypoint<
                   await callback();
                   return { retryAt: null as number | null };
                 } catch (error) {
+                  if (error instanceof PersonalError && event.payload.userId) {
+                    if (error.code === "github_connection_required")
+                      throw new NonRetryableError(githubReconnectFailure);
+                    if (error.code === "github_refresh_unavailable")
+                      throw new Error(githubRefreshFailure, { cause: error });
+                  }
                   if (error instanceof GitHubError) {
                     if (error.retryAt !== null)
                       return { retryAt: error.retryAt };
@@ -131,7 +139,15 @@ export class ActivityCollection extends WorkflowEntrypoint<
             ? safePersonalFailure(error)
             : "Collection failed. Inspect Workflow logs and retry this run.",
         );
-        if (event.payload.progressive)
+        if (
+          event.payload.progressive &&
+          !(error instanceof PersonalError) &&
+          !(
+            error instanceof Error &&
+            (error.message.includes(githubReconnectFailure) ||
+              error.message.includes(githubRefreshFailure))
+          )
+        )
           await store
             .statement(
               "UPDATE collection_runs SET status='failed',error_message=? WHERE id=? AND status NOT IN ('published','cancelled','blocked')",
@@ -150,6 +166,12 @@ export class ActivityCollection extends WorkflowEntrypoint<
       }
 
       function safePersonalFailure(error: Error): string {
+        if (
+          (error instanceof PersonalError &&
+            error.code === "github_refresh_unavailable") ||
+          error.message.includes(githubRefreshFailure)
+        )
+          return githubRefreshFailure;
         if (
           (error instanceof PersonalError &&
             error.code === "github_connection_required") ||

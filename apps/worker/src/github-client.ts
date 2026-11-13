@@ -51,24 +51,30 @@ function rejectionReason(message: unknown): string {
   return "Unrecognized GitHub rejection reason; consult GitHub endpoint permissions.";
 }
 
+type GitHubToken = string | (() => Promise<string>);
+
 function createGitHubRequest(
-  token: string | null,
+  token: GitHubToken | null,
   request: typeof fetch,
   redactPaths = false,
 ) {
   async function github<T>(path: string, body?: object): Promise<T> {
-    const send = () =>
-      request(`https://api.github.com${path}`, {
+    const send = async () => {
+      const accessToken = typeof token === "function" ? await token() : token;
+      return request(`https://api.github.com${path}`, {
         method: body ? "POST" : "GET",
         headers: {
           accept: "application/vnd.github+json",
-          ...(token === null ? {} : { authorization: `Bearer ${token}` }),
+          ...(accessToken === null
+            ? {}
+            : { authorization: `Bearer ${accessToken}` }),
           "user-agent": "workforce-activity",
           "x-github-api-version": "2022-11-28",
         },
         ...(body ? { body: JSON.stringify(body) } : {}),
         signal: AbortSignal.timeout(60_000),
       });
+    };
     let response = await send();
     for (
       let retry = 1;
@@ -129,11 +135,11 @@ export function createPublicGitHubClient(request: typeof fetch = fetch) {
 }
 
 export function createGitHubClient(
-  token: string,
+  token: GitHubToken,
   request: typeof fetch = fetch,
   redactPaths = false,
 ) {
-  if (!token.trim()) {
+  if (typeof token === "string" && !token.trim()) {
     throw new Error("GH_TOKEN is required to collect GitHub activity.");
   }
   const github = createGitHubRequest(token, request, redactPaths);

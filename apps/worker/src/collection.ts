@@ -30,6 +30,7 @@ import {
   assertPersonalActive,
   assertPersonalCollectionActive,
   githubCredential,
+  githubCredentialGeneration,
 } from "./platform.js";
 
 export interface CollectionParams {
@@ -237,8 +238,13 @@ async function collect(
     await assertPersonalActive(env, params.userId);
     await store.config(params.revisionId);
   }
-  const credential = params.userId
-    ? await githubCredential(env, params.userId)
+  const userId = params.userId;
+  const generation = userId
+    ? await githubCredentialGeneration(env, userId)
+    : undefined;
+  if (userId) await githubCredential(env, userId, fetch, generation);
+  const credential = userId
+    ? () => githubCredential(env, userId, fetch, generation)
     : (env.GH_TOKEN ?? "");
   const client = createGitHubClient(credential, request);
   const clientForRepository = (name: string) =>
@@ -430,7 +436,7 @@ async function collect(
       config,
       clientForRepository,
       hashEmail,
-      params.userId ? credential : null,
+      generation ?? null,
     );
     return;
   }

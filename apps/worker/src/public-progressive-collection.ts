@@ -16,7 +16,7 @@ import {
 } from "@shazhou-work/workforce-contracts";
 import {
   assertPersonalCollectionActive,
-  githubCredential,
+  githubCredentialGeneration,
   githubConnection,
 } from "./platform.js";
 
@@ -126,7 +126,7 @@ export async function collectPublicProgressively(
   config: CollectionConfig,
   clientForRepository: (name: string) => GitHubClient,
   hashEmail: (email: string) => Promise<string>,
-  credential: string | null,
+  generation: string | null,
 ) {
   const repositories: ProgressiveRepository[] = [];
   const assertOwner = async () => {
@@ -144,7 +144,7 @@ export async function collectPublicProgressively(
         ))
       )
         throw new Error("Personal collection access was suspended.");
-      if ((await githubCredential(env, params.userId)) !== credential)
+      if ((await githubCredentialGeneration(env, params.userId)) !== generation)
         throw new Error("Collection credential changed.");
     }
     if (!(await store.ownsRun(params.runId)))
@@ -208,7 +208,7 @@ export async function collectPublicProgressively(
         params.runId,
         false,
       );
-      if ((await githubCredential(env, params.userId)) !== credential)
+      if ((await githubCredentialGeneration(env, params.userId)) !== generation)
         throw new Error("Collection credential changed.");
     }
     await assertOwner();

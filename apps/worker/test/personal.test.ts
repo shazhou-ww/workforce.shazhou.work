@@ -12,6 +12,8 @@ import {
   decryptCredential,
   encryptCredential,
   githubIdentity,
+  githubCredential,
+  githubCredentialGeneration,
   platformAccess,
   registerIdentity,
   retainGitHub,
@@ -142,6 +144,9 @@ async function jwtCallback(
     provider?: string;
     providerId?: string;
     accessToken?: string;
+    refreshToken?: string;
+    expiresAt?: number;
+    refreshExpiresIn?: number;
     profile?: Record<string, unknown>;
   } = {},
   request?: Request,
@@ -155,6 +160,13 @@ async function jwtCallback(
       providerAccountId: input.providerId ?? "101",
       type: "oauth",
       access_token: input.accessToken ?? "oauth-private-token",
+      ...(input.refreshToken === undefined
+        ? {}
+        : { refresh_token: input.refreshToken }),
+      ...(input.expiresAt === undefined ? {} : { expires_at: input.expiresAt }),
+      ...(input.refreshExpiresIn === undefined
+        ? {}
+        : { refresh_token_expires_in: input.refreshExpiresIn }),
     },
     profile: input.profile ?? {},
     trigger: "signIn",
@@ -681,6 +693,295 @@ describe("personal access and invitations", () => {
 });
 
 describe("OAuth identities and protected credentials", () => {
+  const renewedTokens = {
+    access_token: "renewed-access-token",
+    refresh_token: "rotated-refresh-token",
+    expires_in: 28800,
+    refresh_token_expires_in: 15811200,
+  };
+
+  async function expiringConnection(env: Bindings, id: string, seconds = 299) {
+    const now = Math.floor(Date.now() / 1000);
+    await retainGitHub(env, id, github, "old-access-token", "read:org", fetch, {
+      refreshToken: "old-refresh-token",
+      expiresAt: now + seconds,
+      refreshExpiresAt: now + 86400,
+    });
+    return now;
+  }
+
+  it("encrypts refresh tokens from OAuth callbacks without exposing them in sessions or APIs", async () => {
+    const { env, store } = fixture();
+    await invite(env);
+    vi.stubGlobal("fetch", githubFetch());
+    const expiresAt = Math.floor(Date.now() / 1000) + 28800;
+    const token = await jwtCallback(env, {
+      refreshToken: "callback-refresh-secret",
+      expiresAt,
+      refreshExpiresIn: 86400,
+    });
+    const id = token?.platformUserId;
+    if (typeof id !== "string") throw new Error("Missing personal test user.");
+    const row = await store.one<{
+      refresh_credential: string;
+      expires_at: number;
+      refresh_expires_at: number;
+    }>(
+      "SELECT refresh_credential,expires_at,refresh_expires_at FROM personal_github WHERE user_id=?",
+      id,
+    );
+    expect(await decryptCredential(env, id, row!.refresh_credential)).toBe(
+      "callback-refresh-secret",
+    );
+    expect(row!.expires_at).toBe(expiresAt);
+    expect(row!.refresh_expires_at).toBeGreaterThan(expiresAt);
+    const access = await platformAccess(env, token);
+    const response = await call(env, "/personal/github", await session(id));
+    for (const value of [token, access, await response.json(), row])
+      expect(JSON.stringify(value)).not.toContain("callback-refresh-secret");
+  });
+
+  it("rotates both tokens before expiry and keeps the connection generation stable", async () => {
+    const { env, store } = fixture();
+    const id = await user(env);
+    const now = await expiringConnection(env, id);
+    const generation = await githubCredentialGeneration(env, id);
+    const request = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(Response.json(renewedTokens));
+    expect(await githubCredential(env, id, request, generation)).toBe(
+      renewedTokens.access_token,
+    );
+    expect(request).toHaveBeenCalledOnce();
+    const [url, init] = request.mock.calls[0]!;
+    expect(url).toBe("https://github.com/login/oauth/access_token");
+    if (!(init?.body instanceof URLSearchParams))
+      throw new Error("Missing OAuth refresh form.");
+    const form = init.body;
+    expect(form.get("refresh_token")).toBe("old-refresh-token");
+    expect(form.get("client_secret")).toBe("github-secret");
+    const row = await store.one<{
+      credential: string;
+      refresh_credential: string;
+      expires_at: number;
+      refresh_expires_at: number;
+      refresh_lock: string | null;
+    }>("SELECT * FROM personal_github WHERE user_id=?", id);
+    expect(await decryptCredential(env, id, row!.credential)).toBe(
+      renewedTokens.access_token,
+    );
+    expect(await decryptCredential(env, id, row!.refresh_credential)).toBe(
+      renewedTokens.refresh_token,
+    );
+    expect(row!.expires_at).toBeGreaterThanOrEqual(now + 28800);
+    expect(row!.refresh_expires_at).toBeGreaterThanOrEqual(now + 15811200);
+    expect(row!.refresh_lock).toBeNull();
+    expect(await githubCredentialGeneration(env, id)).toBe(generation);
+    expect(await githubCredential(env, id, request)).toBe(
+      renewedTokens.access_token,
+    );
+    expect(request).toHaveBeenCalledOnce();
+  });
+
+  it("renews only once when two requests concurrently use an expiring token", async () => {
+    const { env } = fixture();
+    const id = await user(env);
+    await expiringConnection(env, id);
+    const request = vi.fn<typeof fetch>().mockImplementation(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return Response.json(renewedTokens);
+    });
+    expect(
+      await Promise.all([
+        githubCredential(env, id, request),
+        githubCredential(env, id, request),
+      ]),
+    ).toEqual([renewedTokens.access_token, renewedTokens.access_token]);
+    expect(request).toHaveBeenCalledOnce();
+  });
+
+  it("does not renew non-expiring OAuth tokens or tokens outside the five-minute window", async () => {
+    const { env } = fixture();
+    const id = await user(env);
+    const request = vi.fn<typeof fetch>();
+    expect(await githubCredential(env, id, request)).toBe(
+      "oauth-private-token",
+    );
+    await expiringConnection(env, id, 600);
+    expect(await githubCredential(env, id, request)).toBe("old-access-token");
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it.each([300, 301])(
+    "checks the exact five-minute renewal boundary (%s seconds)",
+    async (seconds) => {
+      vi.spyOn(Date, "now").mockReturnValue(1794564600000);
+      const { env } = fixture();
+      const id = await user(env);
+      await expiringConnection(env, id, seconds);
+      const request = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(Response.json(renewedTokens));
+      expect(await githubCredential(env, id, request)).toBe(
+        seconds === 300 ? renewedTokens.access_token : "old-access-token",
+      );
+      expect(request).toHaveBeenCalledTimes(seconds === 300 ? 1 : 0);
+    },
+  );
+
+  it("preserves refresh metadata when retaining a verified organization credential after a basic login", async () => {
+    const { env, store } = fixture();
+    const id = await user(env);
+    await expiringConnection(env, id, 600);
+    const before = await store.one(
+      "SELECT credential,refresh_credential,expires_at,refresh_expires_at,credential_generation FROM personal_github WHERE user_id=?",
+      id,
+    );
+    await retainGitHub(
+      env,
+      id,
+      github,
+      "basic-token",
+      "read:user,user:email",
+      githubFetch(),
+    );
+    expect(
+      await store.one(
+        "SELECT credential,refresh_credential,expires_at,refresh_expires_at,credential_generation FROM personal_github WHERE user_id=?",
+        id,
+      ),
+    ).toEqual(before);
+  });
+
+  it.each(["bad_refresh_token", "expired_refresh", "missing_refresh"] as const)(
+    "requires reconnection instead of using expired credentials: %s",
+    async (failure) => {
+      const { env, store } = fixture();
+      const id = await user(env);
+      await expiringConnection(env, id, -1);
+      if (failure === "expired_refresh")
+        await store
+          .statement(
+            "UPDATE personal_github SET refresh_expires_at=0 WHERE user_id=?",
+            id,
+          )
+          .run();
+      if (failure === "missing_refresh")
+        await store
+          .statement(
+            "UPDATE personal_github SET refresh_credential=NULL WHERE user_id=?",
+            id,
+          )
+          .run();
+      const request = vi.fn<typeof fetch>().mockResolvedValue(
+        Response.json({
+          error: "bad_refresh_token",
+          error_description: "secret",
+        }),
+      );
+      await expect(githubCredential(env, id, request)).rejects.toMatchObject({
+        code: "github_connection_required",
+      });
+      expect(request).toHaveBeenCalledTimes(
+        failure === "bad_refresh_token" ? 1 : 0,
+      );
+    },
+  );
+
+  it.each(["network", "server", "invalid_json", "incomplete"] as const)(
+    "surfaces sanitized renewal failures without erasing stored credentials: %s",
+    async (failure) => {
+      const { env, store } = fixture();
+      const id = await user(env);
+      await expiringConnection(env, id);
+      const before = await store.one(
+        "SELECT credential,refresh_credential FROM personal_github WHERE user_id=?",
+        id,
+      );
+      const request = vi.fn<typeof fetch>().mockImplementation(() => {
+        if (failure === "network")
+          return Promise.reject(new Error("sensitive-secret"));
+        if (failure === "server")
+          return Promise.resolve(
+            new Response("sensitive-secret", { status: 503 }),
+          );
+        if (failure === "invalid_json")
+          return Promise.resolve(new Response("sensitive-secret"));
+        return Promise.resolve(
+          Response.json({ access_token: "sensitive-secret" }),
+        );
+      });
+      await expect(githubCredential(env, id, request)).rejects.toMatchObject({
+        code: "github_refresh_unavailable",
+      });
+      expect(
+        await store.one(
+          "SELECT credential,refresh_credential FROM personal_github WHERE user_id=?",
+          id,
+        ),
+      ).toEqual(before);
+      expect(
+        await store.one(
+          "SELECT refresh_lock FROM personal_github WHERE user_id=?",
+          id,
+        ),
+      ).toEqual({ refresh_lock: null });
+      expect(request).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each(["disconnect", "reconnect"] as const)(
+    "does not resurrect or overwrite a connection changed during renewal: %s",
+    async (change) => {
+      const { env, store } = fixture();
+      const id = await user(env);
+      await expiringConnection(env, id);
+      const generation = await githubCredentialGeneration(env, id);
+      const request = vi.fn<typeof fetch>().mockImplementation(async () => {
+        if (change === "disconnect")
+          await store
+            .statement("DELETE FROM personal_github WHERE user_id=?", id)
+            .run();
+        else
+          await retainGitHub(env, id, github, "replacement-token", "read:org");
+        return Response.json(renewedTokens);
+      });
+      await expect(
+        githubCredential(env, id, request, generation),
+      ).rejects.toMatchObject({
+        code: "github_connection_required",
+      });
+      if (change === "disconnect")
+        expect(
+          await store.one(
+            "SELECT user_id FROM personal_github WHERE user_id=?",
+            id,
+          ),
+        ).toBeNull();
+      else {
+        expect(await githubCredential(env, id)).toBe("replacement-token");
+        await expect(
+          githubCredential(env, id, request, generation),
+        ).rejects.toThrow("credential changed");
+      }
+    },
+  );
+
+  it("uses the hourly collection scheduler to renew credentials before starting a Workflow", async () => {
+    const { env, create } = fixture();
+    const id = await user(env);
+    await new CollectionStore(env.DB!, id).saveConfig(config);
+    await expiringConnection(env, id, -1);
+    const request = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(Response.json(renewedTokens));
+    vi.stubGlobal("fetch", request);
+    await schedulePersonalCollections(env, Date.now());
+    expect(request).toHaveBeenCalledOnce();
+    expect(create).toHaveBeenCalledOnce();
+    expect(await githubCredential(env, id)).toBe(renewedTokens.access_token);
+  });
+
   it.each(["GitHub Display Name", null, "   "])(
     "retains the verified GitHub display name and avatar through sign-in (%s)",
     async (name) => {

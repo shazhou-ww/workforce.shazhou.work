@@ -184,6 +184,16 @@ export function createAuthConfig(env: Bindings, request?: Request): AuthConfig {
               github,
               account.access_token,
               github.scopes || account.scope || "",
+              fetch,
+              {
+                refreshToken: account.refresh_token,
+                expiresAt: account.expires_at,
+                refreshExpiresAt:
+                  typeof account.refresh_token_expires_in === "number"
+                    ? Math.floor(Date.now() / 1000) +
+                      account.refresh_token_expires_in
+                    : undefined,
+              },
             );
         }
         return token;

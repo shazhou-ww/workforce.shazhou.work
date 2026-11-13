@@ -905,6 +905,30 @@ Create a dedicated
   Windows DPAPI-encrypted recovery copy at
   `$env:LOCALAPPDATA\Workforce\auth-secret.clixml`, outside the repository.
 
+Apply `apps/worker/migrations/0008_github_oauth_refresh.sql` before deploying
+OAuth token renewal. OAuth callbacks retain any supplied refresh token and
+access/refresh expiration times; both tokens are encrypted with `AUTH_SECRET`
+and bound to the personal user. They are never exposed in sessions or APIs. When
+an access token is within five minutes of expiry, credential reads renew it
+using the configured GitHub client ID/secret and atomically save both rotated
+tokens. The existing hourly collection scheduler performs this check before
+starting each due collection; running public collections also read the current
+token before each GitHub request. No additional cron is required. Disabled
+collections do not renew in the background; the next credential use renews them.
+A database lease serializes refreshes across requests and isolates, and renewal
+does not invalidate a running collection's connection generation. Disconnecting
+or reconnecting fences out an in-flight renewal.
+
+Ordinary GitHub OAuth App tokens generally have no short expiration and remain
+unchanged when GitHub supplies no expiration metadata. GitHub App user tokens
+can expire after eight hours and supply refresh credentials; renewal only
+handles credentials GitHub actually returns, and does not change application
+type or permissions. Existing stored connections have no refresh token and must
+reconnect once to capture one if their application supplies it. Expired or
+revoked refresh credentials require reconnection; transient renewal errors are
+surfaced without discarding previous complete snapshots. Authorization errors
+are not replaced with the generic annual-backfill warning.
+
 ```powershell
 pnpm --filter @shazhou-work/workforce-worker exec wrangler secret put AUTH_GITHUB_ID
 pnpm --filter @shazhou-work/workforce-worker exec wrangler secret put AUTH_GITHUB_SECRET

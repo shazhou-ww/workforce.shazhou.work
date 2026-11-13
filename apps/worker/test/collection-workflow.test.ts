@@ -207,7 +207,7 @@ describe("durable collection orchestration", () => {
     expect(await store.ownsRun("run")).toBe(true);
   });
 
-  it.each(["rejected", "unreadable", "forbidden"] as const)(
+  it.each(["rejected", "unreadable", "forbidden", "refresh"] as const)(
     "records actionable personal credential failures without exposing provider details: %s",
     async (failure) => {
       const { env, event, step, execute, sleepUntil } = setup();
@@ -242,19 +242,25 @@ describe("durable collection orchestration", () => {
         )
         .run();
       const error =
-        failure === "unreadable"
+        failure === "refresh"
           ? new PersonalError(
-              "github_connection_required",
-              "Stored credential is unavailable.",
-              409,
+              "github_refresh_unavailable",
+              "GitHub renewal unavailable.",
+              503,
             )
-          : new GitHubError(
-              failure === "rejected" ? 401 : 403,
-              null,
-              "/orgs/private-scope/repos",
-              null,
-              "sensitive-provider-detail",
-            );
+          : failure === "unreadable"
+            ? new PersonalError(
+                "github_connection_required",
+                "Stored credential is unavailable.",
+                409,
+              )
+            : new GitHubError(
+                failure === "rejected" ? 401 : 403,
+                null,
+                "/orgs/private-scope/repos",
+                null,
+                "sensitive-provider-detail",
+              );
       // Workflow replay can restore a step failure as a plain Error.
       execute.mockImplementation(
         async (
@@ -284,7 +290,15 @@ describe("durable collection orchestration", () => {
       );
       await expect(
         workflow.run(
-          { ...event, payload: { ...event.payload, revisionId, userId } },
+          {
+            ...event,
+            payload: {
+              ...event.payload,
+              revisionId,
+              userId,
+              progressive: failure !== "forbidden",
+            },
+          },
           step,
         ),
       ).rejects.toThrow();
@@ -295,7 +309,9 @@ describe("durable collection orchestration", () => {
       expect(run?.error_message).toContain(
         failure === "forbidden"
           ? "check repository visibility"
-          : "Reconnect GitHub in settings",
+          : failure === "refresh"
+            ? "GitHub token renewal is temporarily unavailable"
+            : "Reconnect GitHub in settings",
       );
       expect(run?.error_message).not.toMatch(
         /private-scope|sensitive-provider-detail/,

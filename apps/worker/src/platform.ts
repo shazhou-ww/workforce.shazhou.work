@@ -9,6 +9,7 @@ import {
 import { collectionAdminIds } from "./auth.js";
 import type { Bindings } from "./env.js";
 import { CollectionStore } from "./collection-store.js";
+import { setTimeout as delay } from "node:timers/promises";
 
 export const personalLimits = {
   repositories: personalRepositoryLimit,
@@ -83,18 +84,215 @@ export async function decryptCredential(
   }
 }
 
-export async function githubCredential(env: Bindings, userId: string) {
-  const row = await database(env).one<{ credential: string }>(
-    "SELECT credential FROM personal_github WHERE user_id=?",
+interface GitHubCredentialRow {
+  credential: string;
+  refresh_credential: string | null;
+  expires_at: number | null;
+  refresh_expires_at: number | null;
+  credential_generation: string;
+  refresh_lock: string | null;
+  refresh_lock_until: number | null;
+}
+
+export interface GitHubTokenMetadata {
+  refreshToken?: string | undefined;
+  expiresAt?: number | undefined;
+  refreshExpiresAt?: number | undefined;
+}
+
+function reconnectGitHub() {
+  return new PersonalError(
+    "github_connection_required",
+    "GitHub authorization expired or was revoked. Reconnect GitHub in settings.",
+    409,
+  );
+}
+
+export async function githubCredentialGeneration(
+  env: Bindings,
+  userId: string,
+) {
+  const row = await database(env).one<{ credential_generation: string }>(
+    "SELECT credential_generation FROM personal_github WHERE user_id=?",
     userId,
   );
-  if (!row?.credential)
-    throw new PersonalError(
-      "github_connection_required",
-      "Connect GitHub before configuring or collecting activity.",
-      409,
+  if (!row) throw reconnectGitHub();
+  return row.credential_generation;
+}
+
+export async function githubCredential(
+  env: Bindings,
+  userId: string,
+  request: typeof fetch = fetch,
+  generation?: string,
+) {
+  const store = database(env);
+  const deadline = Date.now() + 20_000;
+  while (Date.now() < deadline) {
+    const row = await store.one<GitHubCredentialRow>(
+      `SELECT credential,refresh_credential,expires_at,refresh_expires_at,
+        credential_generation,refresh_lock,refresh_lock_until FROM personal_github WHERE user_id=?`,
+      userId,
     );
-  return decryptCredential(env, userId, row.credential);
+    if (!row?.credential) throw reconnectGitHub();
+    if (generation !== undefined && row.credential_generation !== generation)
+      throw new PersonalError(
+        "github_connection_required",
+        "Collection credential changed. Retry with the current GitHub connection.",
+        409,
+      );
+    const now = Math.floor(Date.now() / 1000);
+    if (row.expires_at === null || row.expires_at > now + 300)
+      return decryptCredential(env, userId, row.credential);
+    if (
+      !row.refresh_credential ||
+      (row.refresh_expires_at !== null && row.refresh_expires_at <= now)
+    )
+      throw reconnectGitHub();
+    if (!env.AUTH_GITHUB_ID || !env.AUTH_GITHUB_SECRET)
+      throw new PersonalError(
+        "unavailable",
+        "GitHub OAuth refresh is not configured.",
+        503,
+      );
+    const lock = crypto.randomUUID();
+    const claimed = await store.one<{ user_id: string }>(
+      `UPDATE personal_github SET refresh_lock=?,refresh_lock_until=?
+       WHERE user_id=? AND credential=? AND credential_generation=?
+         AND (refresh_lock IS NULL OR refresh_lock_until<=?)
+       RETURNING user_id`,
+      lock,
+      now + 60,
+      userId,
+      row.credential,
+      row.credential_generation,
+      now,
+    );
+    if (!claimed) {
+      await delay(100);
+      continue;
+    }
+    try {
+      const refreshToken = await decryptCredential(
+        env,
+        userId,
+        row.refresh_credential,
+      );
+      let response: Response;
+      try {
+        response = await request(
+          "https://github.com/login/oauth/access_token",
+          {
+            method: "POST",
+            headers: {
+              accept: "application/json",
+              "content-type": "application/x-www-form-urlencoded",
+            },
+            body: new URLSearchParams({
+              client_id: env.AUTH_GITHUB_ID,
+              client_secret: env.AUTH_GITHUB_SECRET,
+              grant_type: "refresh_token",
+              refresh_token: refreshToken,
+            }),
+            signal: AbortSignal.timeout(15_000),
+          },
+        );
+      } catch {
+        throw new PersonalError(
+          "github_refresh_unavailable",
+          "GitHub token renewal could not be completed. Retry shortly; reconnect GitHub if it continues to fail.",
+          503,
+        );
+      }
+      if (!response.ok && response.status !== 400 && response.status !== 401)
+        throw new PersonalError(
+          "github_refresh_unavailable",
+          "GitHub token renewal is unavailable. Retry shortly.",
+          503,
+        );
+      let result: unknown;
+      try {
+        result = await response.json();
+      } catch {
+        throw new PersonalError(
+          "github_refresh_unavailable",
+          "GitHub returned an invalid token renewal response.",
+          502,
+        );
+      }
+      if (!result || typeof result !== "object") throw reconnectGitHub();
+      if ("error" in result) {
+        if (
+          result.error === "bad_refresh_token" ||
+          result.error === "invalid_grant" ||
+          result.error === "expired_token"
+        )
+          throw reconnectGitHub();
+        throw new PersonalError(
+          "github_refresh_unavailable",
+          "GitHub rejected token renewal. Check OAuth configuration or reconnect GitHub.",
+          502,
+        );
+      }
+      if (!response.ok)
+        throw new PersonalError(
+          "github_refresh_unavailable",
+          "GitHub rejected token renewal. Check OAuth configuration or reconnect GitHub.",
+          502,
+        );
+      if (
+        !("access_token" in result) ||
+        typeof result.access_token !== "string" ||
+        !result.access_token.trim() ||
+        !("refresh_token" in result) ||
+        typeof result.refresh_token !== "string" ||
+        !result.refresh_token.trim() ||
+        !("expires_in" in result) ||
+        typeof result.expires_in !== "number" ||
+        !Number.isSafeInteger(result.expires_in) ||
+        result.expires_in <= 0 ||
+        !("refresh_token_expires_in" in result) ||
+        typeof result.refresh_token_expires_in !== "number" ||
+        !Number.isSafeInteger(result.refresh_token_expires_in) ||
+        result.refresh_token_expires_in <= 0
+      )
+        throw new PersonalError(
+          "github_refresh_unavailable",
+          "GitHub returned incomplete token renewal credentials. Reconnect GitHub.",
+          502,
+        );
+      const issuedAt = Math.floor(Date.now() / 1000);
+      const saved = await store.one<{ user_id: string }>(
+        `UPDATE personal_github SET credential=?,refresh_credential=?,expires_at=?,refresh_expires_at=?,
+          refresh_lock=NULL,refresh_lock_until=NULL
+         WHERE user_id=? AND credential=? AND credential_generation=? AND refresh_lock=?
+         RETURNING user_id`,
+        await encryptCredential(env, userId, result.access_token),
+        await encryptCredential(env, userId, result.refresh_token),
+        issuedAt + result.expires_in,
+        issuedAt + result.refresh_token_expires_in,
+        userId,
+        row.credential,
+        row.credential_generation,
+        lock,
+      );
+      if (!saved) throw reconnectGitHub();
+      return result.access_token;
+    } finally {
+      await store
+        .statement(
+          "UPDATE personal_github SET refresh_lock=NULL,refresh_lock_until=NULL WHERE user_id=? AND refresh_lock=?",
+          userId,
+          lock,
+        )
+        .run();
+    }
+  }
+  throw new PersonalError(
+    "github_refresh_unavailable",
+    "GitHub token renewal is already in progress. Retry shortly.",
+    503,
+  );
 }
 
 async function credentialKey(secret: string) {
@@ -363,17 +561,14 @@ export async function retainGitHub(
   accessToken: string,
   scopes: string,
   request: typeof fetch = fetch,
+  tokens: GitHubTokenMetadata = {},
 ) {
   const store = database(env);
-  let credential: string | null = null;
+  let retained: GitHubCredentialRow | null = null;
   if (!scopes.split(/[, ]+/).includes("read:org")) {
-    const previous = await store.one<{
-      github_id: string;
-      credential: string;
-    }>(
-      "SELECT github_id,credential FROM personal_github WHERE user_id=?",
-      userId,
-    );
+    const previous = await store.one<
+      GitHubCredentialRow & { github_id: string }
+    >("SELECT * FROM personal_github WHERE user_id=?", userId);
     if (previous?.github_id === github.id && previous.credential) {
       try {
         const token = await decryptCredential(env, userId, previous.credential);
@@ -394,12 +589,27 @@ export async function retainGitHub(
           String(profile.id) === github.id &&
           verifiedScopes.split(/[, ]+/).includes("read:org")
         ) {
-          credential = previous.credential;
+          retained = previous;
           scopes = verifiedScopes;
         } else {
           console.warn(
             "Existing GitHub organization credential could not be verified; organization reauthorization is required.",
           );
+        }
+        if (retained) {
+          const saved = await store.one<{ user_id: string }>(
+            `UPDATE personal_github SET login=?,name=?,avatar_url=?,scopes=?
+             WHERE user_id=? AND github_id=? AND credential_generation=? RETURNING user_id`,
+            github.login,
+            github.name ?? null,
+            github.avatarUrl,
+            scopes,
+            userId,
+            github.id,
+            retained.credential_generation,
+          );
+          if (!saved) throw reconnectGitHub();
+          return;
         }
       } catch {
         console.warn(
@@ -410,17 +620,26 @@ export async function retainGitHub(
   }
   await store
     .statement(
-      `INSERT INTO personal_github (user_id,github_id,login,avatar_url,credential,scopes,updated_at,name) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET
-    login=excluded.login,name=excluded.name,avatar_url=excluded.avatar_url,credential=excluded.credential,scopes=excluded.scopes,updated_at=excluded.updated_at
+      `INSERT INTO personal_github (user_id,github_id,login,avatar_url,credential,scopes,updated_at,name,
+        refresh_credential,expires_at,refresh_expires_at,credential_generation) VALUES (?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET
+    login=excluded.login,name=excluded.name,avatar_url=excluded.avatar_url,credential=excluded.credential,scopes=excluded.scopes,updated_at=excluded.updated_at,
+    refresh_credential=excluded.refresh_credential,expires_at=excluded.expires_at,refresh_expires_at=excluded.refresh_expires_at,
+    credential_generation=excluded.credential_generation,refresh_lock=NULL,refresh_lock_until=NULL
     WHERE personal_github.github_id=excluded.github_id`,
       userId,
       github.id,
       github.login,
       github.avatarUrl,
-      credential ?? (await encryptCredential(env, userId, accessToken)),
+      await encryptCredential(env, userId, accessToken),
       scopes,
       new Date().toISOString(),
       github.name ?? null,
+      tokens.refreshToken
+        ? await encryptCredential(env, userId, tokens.refreshToken)
+        : null,
+      tokens.expiresAt ?? null,
+      tokens.refreshExpiresAt ?? null,
+      crypto.randomUUID(),
     )
     .run();
 }

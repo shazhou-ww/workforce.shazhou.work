@@ -450,7 +450,7 @@ export async function githubIdentity(
   if (
     !Number.isSafeInteger(profile.id) ||
     profile.id <= 0 ||
-    !/^[a-z\d-]+$/i.test(profile.login)
+    !/^[a-z\d_-]+$/i.test(profile.login)
   )
     throw new PersonalError(
       "github_identity_failed",

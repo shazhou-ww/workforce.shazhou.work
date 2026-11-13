@@ -273,9 +273,11 @@ into another user's space.
 
 Use the existing GitHub OAuth callback `/api/auth/callback/github`. GitHub login
 uses verified email addresses to claim invitations; organization discovery asks
-for `read:org` separately. Google identities require a trusted verified-email
-claim; unsupported verification claims cannot claim an invitation. Matching
-emails never automatically merge different provider identities.
+for `read:org` separately. Enterprise-managed GitHub usernames with an
+underscore suffix are accepted for sign-in; verified-email invitation matching
+still applies. Google identities require a trusted verified-email claim;
+unsupported verification claims cannot claim an invitation. Matching emails
+never automatically merge different provider identities.
 
 GitHub account authorization and organization approval are separate. An
 organization can still mark this OAuth app as restricted after the user grants

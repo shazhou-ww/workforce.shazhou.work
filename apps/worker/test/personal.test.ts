@@ -167,6 +167,7 @@ function githubFetch(
     orgPermission?: boolean;
     status?: number;
     name?: string | null;
+    login?: string;
   } = {},
 ) {
   return vi.fn<typeof fetch>().mockImplementation((input) => {
@@ -187,7 +188,7 @@ function githubFetch(
         Response.json(
           {
             id: options.id ?? 101,
-            login: "primary",
+            login: options.login ?? "primary",
             name: options.name ?? null,
             avatar_url: github.avatarUrl,
           },
@@ -846,6 +847,40 @@ describe("OAuth identities and protected credentials", () => {
       code: "identity_mismatch",
     });
   });
+
+  it("claims invitations and retains enterprise-managed GitHub identities", async () => {
+    const { env, store } = fixture();
+    await invite(env);
+    vi.stubGlobal("fetch", githubFetch({ login: "managed-user_enterprise" }));
+    const token = await jwtCallback(env);
+    expect(token).toMatchObject({
+      githubAccountId: "101",
+      verifiedEmail: true,
+    });
+    expect(token?.platformUserId).toEqual(expect.any(String));
+    expect(await store.rows("SELECT status,user_id FROM invitations")).toEqual([
+      { status: "claimed", user_id: token?.platformUserId },
+    ]);
+    expect(
+      await store.rows("SELECT github_id,login FROM personal_github"),
+    ).toEqual([{ github_id: "101", login: "managed-user_enterprise" }]);
+  });
+
+  it.each(["invalid/login", "invalid?login", "invalid login"])(
+    "rejects unsafe GitHub login %s without claiming invitations",
+    async (login) => {
+      const { env, store } = fixture();
+      await invite(env);
+      vi.stubGlobal("fetch", githubFetch({ login }));
+      await expect(jwtCallback(env)).rejects.toMatchObject({
+        code: "github_identity_failed",
+      });
+      expect(await store.rows("SELECT status FROM invitations")).toEqual([
+        { status: "pending" },
+      ]);
+      expect(await store.rows("SELECT * FROM personal_identities")).toEqual([]);
+    },
+  );
 
   it("trusts Google email_verified only and rejects Microsoft/unverified claims for invitations", async () => {
     const { env } = fixture();

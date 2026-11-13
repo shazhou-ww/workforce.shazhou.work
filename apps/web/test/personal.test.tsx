@@ -17,6 +17,10 @@ import { ProfileSharing } from "../src/profile.js";
 import { ScopeList } from "../src/scope-list.js";
 import { ApiError, fetchJson } from "../src/api.js";
 
+vi.mock("../src/private-repositories.js", () => ({
+  PrivateRepositories: () => null,
+}));
+
 const access: PlatformAccessResponse = {
   signedIn: true,
   status: "active",

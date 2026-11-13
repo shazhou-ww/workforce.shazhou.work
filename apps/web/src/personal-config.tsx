@@ -9,6 +9,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ApiError, fetchJson } from "./api.js";
 import { Modal } from "./modal.js";
 import { ScopeList } from "./scope-list.js";
+import { PrivateRepositories } from "./private-repositories.js";
 
 const emptyConfig: PersonalConfig = {
   enabled: false,
@@ -306,6 +307,7 @@ export function PersonalConfiguration({
                     GitHub 授权。
                   </p>
                 </section>
+                <PrivateRepositories configure />
                 <section className="config-section" data-field="accounts">
                   <h3>扫描哪些公开仓库</h3>
                   <label className="field-label" htmlFor="repository-mode">

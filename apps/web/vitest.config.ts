@@ -14,6 +14,7 @@ export default defineConfig({
         "src/collection-control.tsx",
         "src/personal-config.tsx",
         "src/personal-dashboard.tsx",
+        "src/private-repositories.tsx",
         "src/profile.tsx",
         "src/account-menu.tsx",
         "src/invitation-management.tsx",

@@ -29,6 +29,12 @@ import {
 import { CollectionInputError, parseConfig } from "./collection-config.js";
 import { CollectionStore } from "./collection-store.js";
 import { publicSnapshotProjection } from "./public-activity.js";
+import {
+  disconnectPrivateRepositories,
+  readPrivateActivity,
+  savePrivateRepositories,
+  startPrivateCollection,
+} from "./private-repositories.js";
 import type { Bindings } from "./env.js";
 import {
   readAccount,
@@ -250,6 +256,28 @@ personalApi.get("/personal/config", async (context) => {
     github: await githubConnection(context.env, context.get("userId")),
   });
 });
+
+personalApi.get("/personal/private-repositories", async (context) =>
+  context.json(await readPrivateActivity(context.env, context.get("userId"))),
+);
+personalApi.put("/personal/private-repositories", async (context) => {
+  await savePrivateRepositories(
+    context.env,
+    context.get("userId"),
+    await context.req.json<unknown>(),
+  );
+  return context.json({ saved: true });
+});
+personalApi.delete("/personal/private-repositories", async (context) => {
+  await disconnectPrivateRepositories(context.env, context.get("userId"));
+  return context.json({ disconnected: true });
+});
+personalApi.post("/personal/private-repositories/collection", async (context) =>
+  context.json(
+    await startPrivateCollection(context.env, context.get("userId")),
+    202,
+  ),
+);
 
 personalApi.put("/personal/config", async (context) => {
   const github = await githubConnection(context.env, context.get("userId"));

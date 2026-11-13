@@ -65,6 +65,16 @@ const personalErrorMessages: Readonly<Record<string, string>> = {
   profile_invalid: "主页公开设置无效，请重新选择或重新连接 GitHub。",
   profile_unavailable: "主页地址已被占用或个人资格已停用，请重新读取设置。",
   profile_not_found: "此主页未公开或不存在。",
+  private_authorization_required:
+    "私有授权无法确认，结果已隐藏。请检查令牌有效期、主账号、Contents 只读权限、组织审批与仓库选择，再重新连接。",
+  private_token_invalid:
+    "仅支持 fine-grained PAT（github_pat_），不接受 classic PAT 或 OAuth 令牌。",
+  private_configuration_invalid:
+    "请填写令牌并明确选择 1–10 个 owner/name 格式的私有仓库。",
+  private_configuration_changed: "私有授权已在另一窗口修改，请重新读取后保存。",
+  private_workflow_unavailable:
+    "暂时无法确认私有采集状态，结果已隐藏，请重试。",
+  private_history_limit: "单仓库一年历史超过 50000 次提交，暂不支持。",
 };
 
 const configFieldLabels: Readonly<Record<string, string>> = {

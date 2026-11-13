@@ -51,6 +51,81 @@ function setup() {
 }
 
 describe("durable collection orchestration", () => {
+  it("runs isolated private collection in a bounded step without durable sensitive outputs", async () => {
+    const { env, event, step, execute } = setup();
+    const callback = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(runCollection).mockImplementation(
+      async (_env, _params, steps) => {
+        await steps.do("private repository 0", callback);
+      },
+    );
+    const payload = {
+      ...event.payload,
+      userId: crypto.randomUUID(),
+      privateGeneration: "generation",
+    };
+    const workflow = new ActivityCollection({} as ExecutionContext, env);
+    await workflow.run({ ...event, payload }, step);
+    expect(callback).toHaveBeenCalledOnce();
+    expect(execute).toHaveBeenCalledOnce();
+    expect(execute.mock.calls[0]?.[0]).toBe(
+      "collect isolated private repositories",
+    );
+    expect(execute.mock.calls[0]?.[1]).toMatchObject({
+      timeout: "30 minutes",
+      retries: { limit: 0 },
+    });
+  });
+
+  it("sanitizes private Workflow failures and releases only the matching generation", async () => {
+    const { env, event, step } = setup();
+    const db = new TestD1();
+    databases.push(db);
+    const personalEnv = { ...env, DB: db, COLLECTION_ADMIN_GITHUB_IDS: "101" };
+    const userId = (await registerIdentity(personalEnv, "github", "101", []))!;
+    const store = new CollectionStore(db);
+    await store
+      .statement(
+        "INSERT INTO personal_private_repositories(user_id,generation,credential,repositories_json,active_run_id,snapshot_json) VALUES (?,?,?,'[]',?,?)",
+        userId,
+        "generation",
+        "encrypted",
+        "run",
+        "old private snapshot",
+      )
+      .run();
+    vi.mocked(runCollection).mockRejectedValue(
+      new Error("sensitive repository name and credential"),
+    );
+    const workflow = new ActivityCollection(
+      {} as ExecutionContext,
+      personalEnv,
+    );
+    await expect(
+      workflow.run(
+        {
+          ...event,
+          payload: {
+            ...event.payload,
+            userId,
+            privateGeneration: "generation",
+          },
+        },
+        step,
+      ),
+    ).rejects.toThrow("Private collection failed");
+    const state = await store.one<{
+      active_run_id: string | null;
+      snapshot_json: string | null;
+      error_message: string;
+    }>(
+      "SELECT active_run_id,snapshot_json,error_message FROM personal_private_repositories WHERE user_id=?",
+      userId,
+    );
+    expect(state).toMatchObject({ active_run_id: null, snapshot_json: null });
+    expect(state?.error_message).not.toContain("sensitive");
+  });
+
   it("delegates ordinary steps without persisting their sensitive outputs", async () => {
     const { workflow, event, step, execute } = setup();
     const callback = vi.fn().mockResolvedValue(undefined);

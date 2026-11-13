@@ -1,3 +1,5 @@
+# Stable secret of at least 32 characters; encrypts OAuth and private repository PATs.
+# Rotating it requires users to reconnect both authorizations.
 AUTH_SECRET=replace-with-a-random-secret
 AUTH_URL=http://localhost:5173/api/auth
 # Numeric GitHub IDs, not logins or emails. Production administrator: shazhou-ww.

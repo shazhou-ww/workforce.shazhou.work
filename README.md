@@ -45,7 +45,8 @@ GitHub repository location.
   user and organization accounts are supported. Choose all owned public
   repositories or an explicit public repository list; explicit exclusions win.
   Projects mean repositories, not GitHub Projects boards. Private repositories
-  are excluded even if the collection token can access them.
+  are excluded from this public collection even if its token can access them.
+  The separately authorized private statistics below never join these totals.
 - Last **30 Beijing calendar days**, including the partial current day. History
   is fixed to a single collection cutoff, using GitHub's committed timestamp
   rather than author date or push date.
@@ -229,9 +230,44 @@ separate configuration route. Its primary GitHub account comes from OAuth and is
 read-only. Users can select their public repositories and joined organizations,
 add other public account scopes, and add or remove individual included/excluded
 repositories. Exclusions win. Historical author accounts and emails are matching
-filters, not proof of identity or invitation credentials. Only public
-repositories and the existing default-branch statistics are supported; GitHub
-credentials never belong in the browser or a dashboard snapshot.
+filters, not proof of identity or invitation credentials. This configuration
+covers public repositories and default-branch statistics. Private repositories
+use the separate explicit authorization below. GitHub credentials never belong
+in a dashboard snapshot.
+
+### 私有仓库统计（仅本人可见）
+
+在「个人配置 → 私有仓库」中单独连接 fine-grained PAT，并明确填写 1–10 个
+`owner/name` 私有仓库。GitHub 的令牌创建页选择一个资源所有者、**Only select
+repositories**，仅勾选准备统计的仓库，设置有效期；**Contents: Read-only**、
+**Metadata:
+Read-only**，不要授予其他权限。组织审批、SSO、资源所有者和协作者限制仍由 GitHub 决定；待审批、企业 internal 仓库及不受 fine-grained
+PAT 支持的访问场景不支持。登录 OAuth 权限不变，不接受 classic PAT 或 OAuth
+token。令牌前缀不能证明其没有写权限；服务器校验令牌所属 numeric GitHub
+ID 与登录主身份及连接账号一致，校验所选仓库身份、私有性和当前 Contents 读取权限，且只发起 REST
+GET 与固定的 GraphQL 查询，绝不写入 GitHub。
+
+此面板的保存独立于公开配置，立即生效；主配置的保存或取消不撤回它。PAT 输入使用 password 控件，提交后清空，不写入浏览器草稿、不回显。服务器使用现有
+`AUTH_SECRET` 派生的 AES-GCM 密钥和独立用户命名空间加密凭据，不需要注册 GitHub
+App 或增加 secret。保持 `AUTH_SECRET`
+稳定；轮换后旧凭据不可解密，用户需要重新连接。
+
+私有统计单独手动刷新（15 分钟冷却、全局最多 4 个任务），不会随公开定时任务自动采集。个人主页的私有区域显示独立的 30 天提交/增删行、仓库列表及 365 天热力图；与公开统计不合并。首版仅匹配 GitHub 主账号的主要作者，不采用公开配置的历史账号或邮箱匹配，只读取所选仓库默认分支在固定截止时间之前的一年历史，单仓库最多 50000 次提交。不保存原始提交历史/邮箱或可跨用户复用的历史缓存；快照包含仓库元数据和最新提交摘要。所有私有配置、凭据及完整聚合快照只存于
+`personal_private_repositories`，不写入公共 KV、公开快照或已有共享仓库/提交/历史表。
+
+每次读取已有私有结果或启动任务都向 GitHub 重新校验账号及所有选中仓库的当前访问权；历史页也需当前 GitHub 授权，最终发布再次校验权限和授权 generation。权限拒绝、过期、撤销或检查失败时不返回任何私有结果。浏览器成功读取后最多每五分钟复查，采集中每 30 秒复查；任何失败均清空页面中的私有结果。此前下载的副本不能召回。
+
+替换凭据、修改选择或断开连接会立即删除旧快照，并使旧 generation 的运行任务失效；旧任务不能写入新配置或重新创建已删除记录。断开同时删除加密凭据及仓库选择；它不会撤销 GitHub 上的 PAT，应同时到 GitHub 撤销不再需要的令牌。在 GitHub 单独撤权后，服务器保留不可访问的旧加密凭据和聚合快照，直到用户重新连接或断开；不提供过期授权下的旧结果读取。失败任务删除旧快照。公开统计及分享不受影响。
+
+生产只需先应用
+`apps/worker/migrations/0006_private_repositories.sql`；现有数据库、Workflow 与
+`AUTH_SECRET`
+均复用，无额外第三方应用注册。沿用已有发布流程，使用已授权的 D1 连接在创建 Release 标签前应用向后兼容的迁移；Worker 与静态资源只通过 Release
+Action 部署，不扩大现有部署凭据权限。私有 API：
+`GET/PUT/DELETE /api/personal/private-repositories`，
+`POST /api/personal/private-repositories/collection`。全部沿用已获邀身份、实时资格校验、同源变更保护和
+`private, no-store`；公共 `/u/*`、`/api/profiles/*` 与 legacy `/api/activity`
+只读取原有公开结果，私有 yearly/rolling/聚合值也不进入它们。
 
 Administrators are bootstrapped by stable numeric GitHub IDs in
 `COLLECTION_ADMIN_GITHUB_IDS`. They manage invitations using verified login

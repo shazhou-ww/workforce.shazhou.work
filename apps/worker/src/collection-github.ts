@@ -115,6 +115,7 @@ export async function readAccount(
 export async function readMetadata(
   client: GitHubClient,
   repository: RepositoryReference,
+  allowPrivate = false,
 ): Promise<RepositoryMetadata> {
   const result = await client.graphql<{
     repository: MetadataResult | null;
@@ -126,7 +127,7 @@ export async function readMetadata(
     }`,
     parts(repository.full_name),
   );
-  return metadataFromResult(result.repository, repository);
+  return metadataFromResult(result.repository, repository, allowPrivate);
 }
 
 export async function readMetadataBatch(
@@ -172,8 +173,13 @@ export async function readMetadataBatch(
 function metadataFromResult(
   repo: MetadataResult | null | undefined,
   repository: RepositoryReference,
+  allowPrivate = false,
 ): RepositoryMetadata {
-  if (!repo || repo.isPrivate || repo.databaseId !== repository.repository_id) {
+  if (
+    !repo ||
+    (!allowPrivate && repo.isPrivate) ||
+    repo.databaseId !== repository.repository_id
+  ) {
     throw new Error(
       "Repository is unavailable, replaced, or no longer public.",
     );

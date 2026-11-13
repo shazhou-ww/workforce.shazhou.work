@@ -10,6 +10,7 @@ import { CollectionStore } from "./collection-store.js";
 import { GitHubError } from "./github-client.js";
 import { PersonalError } from "./platform.js";
 import type { Bindings } from "./env.js";
+import { failPrivateCollection } from "./private-repositories.js";
 
 const githubReconnectFailure =
   "GitHub authorization expired or was revoked. Reconnect GitHub in settings, then refresh after the cooldown. Previous complete results are retained.";
@@ -23,6 +24,27 @@ export class ActivityCollection extends WorkflowEntrypoint<
     step: WorkflowStep,
   ): Promise<void> {
     try {
+      if (event.payload.privateGeneration) {
+        await step.do(
+          "collect isolated private repositories",
+          {
+            retries: { limit: 0, delay: "5 seconds" },
+            timeout: "30 minutes",
+          },
+          async () => {
+            try {
+              await runCollection(this.env, event.payload, {
+                do: async (_name, callback) => callback(),
+              });
+            } catch {
+              throw new NonRetryableError(
+                "Private collection failed; check repository authorization in settings.",
+              );
+            }
+          },
+        );
+        return;
+      }
       await runCollection(this.env, event.payload, {
         do: async (name, callback) => {
           for (let attempt = 0; attempt < 8; attempt += 1) {
@@ -79,6 +101,17 @@ export class ActivityCollection extends WorkflowEntrypoint<
         },
       });
     } catch (error) {
+      if (event.payload.privateGeneration && event.payload.userId) {
+        await failPrivateCollection(
+          this.env,
+          event.payload.userId,
+          event.payload.privateGeneration,
+          event.payload.runId,
+        );
+        throw new NonRetryableError(
+          "Private collection failed; authorization must be checked in settings.",
+        );
+      }
       if (event.payload.userId)
         console.error(
           "Personal collection failed; previous complete snapshot retained.",

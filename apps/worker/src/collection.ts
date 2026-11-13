@@ -1,4 +1,5 @@
 import { createEmailHasher } from "./collection-config.js";
+import { collectPrivateRepositories } from "./private-repositories.js";
 import {
   readAccount,
   readMetadata,
@@ -35,6 +36,7 @@ export interface CollectionParams {
   readonly revisionId: string;
   readonly until: string;
   readonly userId?: string;
+  readonly privateGeneration?: string;
 }
 
 export interface CollectionSteps {
@@ -56,6 +58,10 @@ export async function runCollection(
   steps: CollectionSteps,
   request: typeof fetch = fetch,
 ): Promise<void> {
+  if (params.privateGeneration) {
+    await collectPrivateRepositories(env, params, steps, request);
+    return;
+  }
   const started = performance.now();
   const requests = { rest: 0, graphql: 0, httpErrors: 0, networkErrors: 0 };
   const metrics = env.DB ? new CollectionStore(env.DB, params.userId) : null;

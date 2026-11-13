@@ -56,6 +56,8 @@ export async function publicPersonalSnapshot(
 // snapshot fields must never become public just because they were serialized.
 export function publicSnapshotProjection(value: unknown): ActivitySnapshot {
   const snapshot = object(value);
+  if (snapshot.visibility === "private")
+    throw new Error("Private statistics cannot be published.");
   if (
     snapshot.version !== 1 ||
     snapshot.days !== 30 ||

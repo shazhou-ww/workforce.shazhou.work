@@ -1,5 +1,6 @@
 export * from "./activity.js";
 export * from "./personal.js";
+export * from "./private.js";
 
 export const authProviderIds = [
   "github",

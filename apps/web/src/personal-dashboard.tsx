@@ -13,6 +13,7 @@ import {
 } from "react";
 import { ApiError, fetchJson } from "./api.js";
 import { Dashboard, DismissibleNotice, type DashboardState } from "./ui.js";
+import { PrivateRepositories } from "./private-repositories.js";
 
 export function PersonalDashboard({
   controls,
@@ -298,6 +299,7 @@ export function PersonalDashboard({
       }
       notice={
         <>
+          <PrivateRepositories revision={revision} />
           {error ? (
             <DismissibleNotice key={`error:${error}`} role="alert">
               无法读取或更新个人统计：{error}{" "}

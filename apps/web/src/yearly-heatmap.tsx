@@ -122,9 +122,12 @@ export function YearlyHeatmap({
       </div>
       {!complete ? (
         <p className="yearly-pending" role="status">
-          年度统计尚未生成，等待下一次完整采集。
+          {daily
+            ? `年度统计补齐中：已完成 ${counts.size} / 365 天；待补齐日期不是零提交。`
+            : "年度统计尚未生成，等待下一次完整采集。"}
         </p>
-      ) : (
+      ) : null}
+      {daily ? (
         <>
           <div className="heatmap-layout">
             <div className="heatmap-weekdays" aria-hidden="true">
@@ -163,15 +166,17 @@ export function YearlyHeatmap({
                   {dates.map((date, index) => {
                     if (index < offset || index >= offset + 365)
                       return <span key={date} aria-hidden="true" />;
-                    const count = counts.get(date) ?? 0;
+                    const count = counts.get(date);
                     const today = date === window.dates.at(-1);
-                    const label = `${date} ${weekday.format(new Date(date))} · ${count} 次提交${today ? " · 截至本次采集" : ""}`;
+                    const label = `${date} ${weekday.format(new Date(date))} · ${count === undefined ? "待补齐" : `${count} 次提交`}${today ? " · 截至本次采集" : ""}`;
                     return (
                       <button
                         key={date}
                         type="button"
                         className={`heatmap-day${today ? " heatmap-today" : ""}`}
-                        data-level={commitLevel(count)}
+                        data-level={
+                          count === undefined ? "unknown" : commitLevel(count)
+                        }
                         data-date={date}
                         aria-label={label}
                         tabIndex={focusedDate === date ? 0 : -1}
@@ -220,7 +225,7 @@ export function YearlyHeatmap({
             </div>
           ) : null}
         </>
-      )}
+      ) : null}
     </section>
   );
 }

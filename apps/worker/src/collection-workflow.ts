@@ -25,24 +25,26 @@ export class ActivityCollection extends WorkflowEntrypoint<
   ): Promise<void> {
     try {
       if (event.payload.privateGeneration) {
-        await step.do(
-          "collect isolated private repositories",
-          {
-            retries: { limit: 0, delay: "5 seconds" },
-            timeout: "30 minutes",
+        await runCollection(this.env, event.payload, {
+          do: async (name, callback) => {
+            await step.do(
+              name,
+              {
+                retries: { limit: 0, delay: "5 seconds" },
+                timeout: "5 minutes",
+              },
+              async () => {
+                try {
+                  await callback();
+                } catch {
+                  throw new NonRetryableError(
+                    "Private collection paused; check authorization or retry later.",
+                  );
+                }
+              },
+            );
           },
-          async () => {
-            try {
-              await runCollection(this.env, event.payload, {
-                do: async (_name, callback) => callback(),
-              });
-            } catch {
-              throw new NonRetryableError(
-                "Private collection failed; check repository authorization in settings.",
-              );
-            }
-          },
-        );
+        });
         return;
       }
       await runCollection(this.env, event.payload, {
@@ -129,6 +131,14 @@ export class ActivityCollection extends WorkflowEntrypoint<
             ? safePersonalFailure(error)
             : "Collection failed. Inspect Workflow logs and retry this run.",
         );
+        if (event.payload.progressive)
+          await store
+            .statement(
+              "UPDATE collection_runs SET status='failed',error_message=? WHERE id=? AND status NOT IN ('published','cancelled','blocked')",
+              "Annual backfill paused. Any complete recent-month snapshot is retained; retry to resume.",
+              event.payload.runId,
+            )
+            .run();
         if (event.payload.userId)
           await store
             .statement(

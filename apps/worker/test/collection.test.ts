@@ -13,6 +13,7 @@ import { GitHubError } from "../src/github-client.js";
 import {
   activityWindow,
   rollingActivity,
+  type ActivitySnapshot,
 } from "@shazhou-work/workforce-contracts";
 
 const until = "2026-11-09T04:00:00.000Z";
@@ -45,6 +46,10 @@ const commit = (index: number, date = until): RawCommit => ({
 const databases: TestD1[] = [];
 const bodyText = (init?: RequestInit) =>
   typeof init?.body === "string" ? init.body : "";
+function publishedValue(value: unknown): ActivitySnapshot {
+  if (typeof value !== "string") throw new Error("Missing snapshot fixture");
+  return JSON.parse(value) as ActivitySnapshot;
+}
 beforeEach(() => {
   vi.spyOn(console, "info").mockImplementation(() => {});
 });
@@ -119,11 +124,25 @@ function github({
           status,
           ahead_by: comparisonShas.length,
           total_commits: comparisonShas.length,
-          commits: comparisonShas.map((value) => ({ sha: value })),
+          commits: comparisonShas.map((value) => ({
+            sha: value,
+            commit: {
+              committer: {
+                date:
+                  commits.find((commit) => commit.oid === value)
+                    ?.committedDate ?? until,
+              },
+            },
+          })),
         }),
       );
     if (url.includes("/repos/"))
-      return Promise.resolve(Response.json(repository));
+      return Promise.resolve(
+        Response.json(
+          repos.find((repo) => url.endsWith(`/repos/${repo.full_name}`)) ??
+            repository,
+        ),
+      );
     const body = JSON.parse(bodyText(init)) as {
       query: string;
       variables: { name: string; owner: string; [name: string]: string };
@@ -132,6 +151,48 @@ function github({
       repos.find((value) =>
         value.full_name.endsWith(`/${body.variables.name}`),
       ) ?? repository;
+    if (
+      body.query.includes("ProgressiveAccess") ||
+      body.query.includes("ProgressiveMonthBatch")
+    )
+      return Promise.resolve(
+        Response.json({
+          data: Object.fromEntries(
+            Object.entries(body.variables)
+              .filter(([key]) => key.startsWith("name"))
+              .map(([key, name]) => {
+                const index = key.slice(4);
+                const entry = repos.find(
+                  (repo) =>
+                    repo.full_name ===
+                    `${body.variables[`owner${index}`]}/${name}`,
+                )!;
+                const nodes = commits.filter(
+                  (commit) =>
+                    commit.committedDate >= body.variables[`since${index}`]! &&
+                    commit.committedDate <= body.variables[`until${index}`]!,
+                );
+                return [
+                  `r${index}`,
+                  {
+                    databaseId: entry.id,
+                    isPrivate: false,
+                    nameWithOwner: entry.full_name,
+                    object: {
+                      history: {
+                        nodes: nodes.slice(0, 100),
+                        pageInfo: {
+                          hasNextPage: nodes.length > 100,
+                          endCursor: "100",
+                        },
+                      },
+                    },
+                  },
+                ];
+              }),
+          ),
+        }),
+      );
     if (body.query.includes("query MetadataBatch")) {
       return Promise.resolve(
         Response.json({
@@ -153,6 +214,27 @@ function github({
     if (body.query.includes("query Metadata"))
       return Promise.resolve(
         Response.json({ data: { repository: metadata(head, repo, branch) } }),
+      );
+    if (body.query.includes("query ProgressiveHistory"))
+      return Promise.resolve(
+        Response.json({
+          data: {
+            repository: {
+              isPrivate: false,
+              databaseId: repo.id,
+              object: {
+                history: {
+                  nodes: commits.filter(
+                    (commit) =>
+                      commit.committedDate >= body.variables.since! &&
+                      commit.committedDate <= body.variables.until!,
+                  ),
+                  pageInfo: { hasNextPage: false, endCursor: null },
+                },
+              },
+            },
+          },
+        }),
       );
     if (body.query.includes("query FullHistory"))
       return Promise.resolve(
@@ -217,11 +299,12 @@ async function setup(config: unknown = baseConfig) {
   return { db, store, revisionId, put, env };
 }
 
-function steps(): CollectionSteps {
+function steps(before?: (name: string) => void): CollectionSteps {
   const completed = new Set<string>();
   return {
     async do(name, callback) {
       if (!completed.has(name)) {
+        before?.(name);
         await callback();
         completed.add(name);
       }
@@ -237,6 +320,572 @@ function params(
 }
 
 describe("D1 collection", () => {
+  it("completes progressive month/year snapshots for three owners before using linear scoped update checks", async () => {
+    const repos = [
+      repository,
+      ...["second", "third"].map((login, index) => ({
+        ...repository,
+        id: index + 3,
+        full_name: `${login}/project-${index}`,
+        owner: { ...owner, id: index + 10, login },
+      })),
+    ];
+    const { env, revisionId, put } = await setup({
+      ...baseConfig,
+      repositoryMode: "explicit",
+      accounts: repos.map((repo) => repo.owner.login),
+      includeRepositories: repos.map((repo) => repo.full_name),
+    });
+    const history = [commit(1), commit(3, "2026-03-01T00:00:00.000Z")];
+    const first = github({ repos, commits: history });
+    const firstRun = { ...params(revisionId), progressive: true };
+    let interrupted = false;
+    const replay = steps((name) => {
+      if (!interrupted && name === "publish annual progress 11") {
+        interrupted = true;
+        throw new Error("fixture-final-publication-stop");
+      }
+    });
+    await expect(runCollection(env, firstRun, replay, first)).rejects.toThrow(
+      "fixture-final-publication-stop",
+    );
+    expect(
+      publishedValue(put.mock.calls.at(-1)?.[1]).yearly!.length,
+    ).toBeLessThan(365);
+    await runCollection(env, firstRun, replay, first);
+    const month = publishedValue(put.mock.calls[0]?.[1]);
+    expect(month.repositories).toHaveLength(3);
+    expect(month.totals.commits).toBe(3);
+    expect(month.yearly).toHaveLength(30);
+    expect(publishedValue(put.mock.calls.at(-1)?.[1]).yearly).toHaveLength(365);
+    const metadataPositions = first.mock.calls.flatMap(([, init], index) =>
+      bodyText(init).includes("query Metadata") ? [index] : [],
+    );
+    const firstHistory = first.mock.calls.findIndex(([, init]) =>
+      bodyText(init).includes("ProgressiveHistory"),
+    );
+    expect(metadataPositions).toHaveLength(3);
+    expect(metadataPositions.every((index) => index < firstHistory)).toBe(true);
+
+    const updated = github({
+      repos,
+      head: sha(2),
+      comparisonShas: [sha(2)],
+      commits: [...history, commit(2, "2026-11-09T05:00:00.000Z")],
+    });
+    const before = put.mock.calls.length;
+    await runCollection(
+      env,
+      { ...params(revisionId), progressive: true },
+      steps(),
+      updated,
+    );
+    expect(put.mock.calls.length - before).toBe(1);
+    expect(publishedValue(put.mock.calls.at(-1)?.[1]).totals.commits).toBe(3);
+    expect(
+      updated.mock.calls.filter(([, init]) =>
+        bodyText(init).includes("ProgressiveAccess"),
+      ),
+    ).toHaveLength(12);
+    expect(
+      updated.mock.calls.filter(([input]) =>
+        (input instanceof Request ? input.url : input.toString()).includes(
+          "/compare/",
+        ),
+      ),
+    ).toHaveLength(3);
+    const revoked = github({ repos, head: sha(2), commits: history });
+    const revokedRequest: typeof fetch = async (input, init) => {
+      const response = await revoked(input, init);
+      if (!bodyText(init).includes("ProgressiveAccess")) return response;
+      const value = await response.json<{
+        data: Record<string, { isPrivate: boolean }>;
+      }>();
+      value.data.r0!.isPrivate = true;
+      return Response.json(value);
+    };
+    const publications = put.mock.calls.length;
+    await expect(
+      runCollection(
+        env,
+        {
+          ...params(revisionId),
+          progressive: true,
+        },
+        steps(),
+        revokedRequest,
+      ),
+    ).rejects.toThrow("no longer available as public");
+    expect(put.mock.calls.length).toBe(publications);
+  });
+
+  it("publishes a complete zero month/year through the progressive path when discovery finds no repositories", async () => {
+    const { env, revisionId, put, store } = await setup();
+    const run = { ...params(revisionId), progressive: true };
+    const names: string[] = [];
+    await runCollection(
+      env,
+      run,
+      {
+        do: async (name, callback) => {
+          names.push(name);
+          await callback();
+        },
+      },
+      github({ repos: [] }),
+    );
+    const snapshot = publishedValue(put.mock.calls[0]?.[1]);
+    expect(snapshot.repositories).toEqual([]);
+    expect(snapshot.daily).toHaveLength(30);
+    expect(snapshot.yearly).toHaveLength(365);
+    expect(snapshot.yearly?.every((day) => day.commits === 0)).toBe(true);
+    expect(snapshot.totals.commits).toBe(0);
+    expect(put).toHaveBeenCalledOnce();
+    expect(names).toContain("publish complete cached snapshot");
+    expect(names).not.toContain("cached repositories pin and plan manifest");
+    expect((await store.run(run.runId)).status).toBe("published");
+  });
+
+  it("keeps a 70-repository warm refresh bounded, migrates valid legacy history, and batches later partial-day reads", async () => {
+    const repos = Array.from({ length: 70 }, (_, index) => ({
+      ...repository,
+      id: index + 100,
+      full_name: `owner/project-${index}`,
+    }));
+    const history = [commit(1), commit(2, "2026-11-09T04:30:00.000Z")];
+    const { env, revisionId, put, db, store } = await setup();
+    await runCollection(
+      env,
+      params(revisionId),
+      steps(),
+      github({ repos, commits: history }),
+    );
+    const baselineRequest = github({ repos, commits: history });
+    const warmUntil = "2026-11-09T05:00:00.000Z";
+    const baselineStarted = performance.now();
+    await runCollection(
+      env,
+      { ...params(revisionId), until: warmUntil },
+      steps(),
+      baselineRequest,
+    );
+    const baselineMs = performance.now() - baselineStarted;
+    const baseline = publishedValue(put.mock.calls.at(-1)?.[1]);
+    const upgrade = github({ repos, commits: history });
+    let before = put.mock.calls.length;
+    const upgradeStarted = performance.now();
+    await runCollection(
+      env,
+      { ...params(revisionId), progressive: true, until: warmUntil },
+      steps(),
+      upgrade,
+    );
+    const upgradeMs = performance.now() - upgradeStarted;
+    const migrated = publishedValue(put.mock.calls.at(-1)?.[1]);
+    expect(migrated.daily).toEqual(baseline.daily);
+    expect(migrated.yearly).toEqual(baseline.yearly);
+    expect(migrated.rolling).toEqual(baseline.rolling);
+    expect(put.mock.calls.length - before).toBe(1);
+    expect(
+      upgrade.mock.calls.filter(([, init]) =>
+        bodyText(init).includes("ProgressiveHistory"),
+      ),
+    ).toHaveLength(0);
+    expect(
+      upgrade.mock.calls.filter(([, init]) =>
+        bodyText(init).includes("ProgressiveMonthBatch"),
+      ),
+    ).toHaveLength(0);
+
+    // The progressive cache must remain efficient even without the old complete
+    // history source, including future-dated commits becoming eligible later.
+    db.sqlite.exec("DELETE FROM repository_sync_state");
+    const warm = github({ repos, commits: history });
+    before = put.mock.calls.length;
+    const warmStarted = performance.now();
+    const warmRun = {
+      ...params(revisionId),
+      progressive: true,
+      until: "2026-11-09T06:00:00.000Z",
+    };
+    await runCollection(env, warmRun, steps(), warm);
+    const warmMs = performance.now() - warmStarted;
+    const snapshot = publishedValue(put.mock.calls.at(-1)?.[1]);
+    expect(snapshot.totals.commits).toBe(140);
+    expect(snapshot.daily).toEqual(baseline.daily);
+    expect(snapshot.yearly).toEqual(baseline.yearly);
+    expect(snapshot.rolling?.at(-1)?.commits).toBe(140);
+    expect(put.mock.calls.length - before).toBe(1);
+    const counts = (request: ReturnType<typeof github>) => ({
+      rest: request.mock.calls.filter(([, init]) => !bodyText(init)).length,
+      graphql: request.mock.calls.filter(([, init]) => !!bodyText(init)).length,
+    });
+    expect(counts(baselineRequest)).toEqual({ rest: 1, graphql: 7 });
+    expect(counts(upgrade)).toEqual({ rest: 1, graphql: 9 });
+    expect(counts(warm)).toEqual({ rest: 1, graphql: 10 });
+    const measured = await store.performance(warmRun.runId, true);
+    expect(measured?.restRequests).toBe(counts(warm).rest);
+    expect(measured?.graphqlRequests).toBe(counts(warm).graphql);
+    expect(
+      warm.mock.calls.filter(([, init]) =>
+        bodyText(init).includes("ProgressiveMonthBatch"),
+      ),
+    ).toHaveLength(1);
+    expect(
+      warm.mock.calls.filter(([, init]) =>
+        bodyText(init).includes("ProgressiveHistory"),
+      ),
+    ).toHaveLength(0);
+    const denied = github({ repos, commits: history });
+    const deniedRequest: typeof fetch = async (input, init) => {
+      const response = await denied(input, init);
+      if (!bodyText(init).includes("ProgressiveMonthBatch")) return response;
+      const value = await response.json<{
+        data: Record<string, { isPrivate: boolean }>;
+      }>();
+      value.data.r17!.isPrivate = true;
+      return Response.json(value);
+    };
+    before = put.mock.calls.length;
+    await expect(
+      runCollection(
+        env,
+        {
+          ...params(revisionId),
+          progressive: true,
+          until: "2026-11-09T07:00:00.000Z",
+        },
+        steps(),
+        deniedRequest,
+      ),
+    ).rejects.toThrow("Pinned repository history is unavailable");
+    expect(put.mock.calls.length).toBe(before);
+    console.log(
+      "WARM_PROGRESSIVE_BENCHMARK",
+      JSON.stringify({
+        repositories: 70,
+        baselineMs,
+        baseline: counts(baselineRequest),
+        upgradeMs,
+        upgrade: counts(upgrade),
+        warmMs,
+        warm: counts(warm),
+        warmPublications: 1,
+        upgradeHistoryPages: 0,
+      }),
+    );
+  }, 30_000);
+
+  it("uses fixed Beijing cutoffs, refreshes partial current days, retains forward history and rebuilds force pushes", async () => {
+    const { env, revisionId, put } = await setup();
+    const recent = commit(1);
+    const old = commit(2, "2026-03-01T00:00:00.000Z");
+    const boundary = commit(3, activityWindow(new Date(until)).since);
+    const before = commit(
+      4,
+      new Date(Date.parse(boundary.committedDate) - 1).toISOString(),
+    );
+    const future = commit(5, new Date(Date.parse(until) + 1).toISOString());
+    const initial = github({
+      commits: [recent, old, boundary, before, future],
+    });
+    await runCollection(
+      env,
+      { ...params(revisionId), progressive: true },
+      steps(),
+      initial,
+    );
+    const first = publishedValue(put.mock.calls.at(-1)?.[1]);
+    expect(first.totals.commits).toBe(2);
+    expect(first.daily[0]?.commits).toBe(1);
+    const later = "2026-11-09T05:00:00.000Z";
+    const added = commit(6, "2026-11-09T04:30:00.000Z");
+    const forward = github({
+      head: sha(6),
+      commits: [recent, old, boundary, before, future, added],
+      comparisonShas: [sha(6)],
+    });
+    await runCollection(
+      env,
+      { ...params(revisionId), progressive: true, until: later },
+      steps(),
+      forward,
+    );
+    const historyQueries = forward.mock.calls.filter(([, init]) =>
+      bodyText(init).includes("ProgressiveHistory"),
+    );
+    expect(historyQueries).toHaveLength(1);
+    const { variables } = JSON.parse(bodyText(historyQueries[0]?.[1])) as {
+      variables: { since: string };
+    };
+    expect(variables.since).toBe("2026-11-08T16:00:00.000Z");
+    expect(publishedValue(put.mock.calls.at(-1)?.[1]).totals.commits).toBe(4);
+    const replaced = github({
+      head: sha(7),
+      commits: [commit(7)],
+      status: "diverged",
+    });
+    await runCollection(
+      env,
+      { ...params(revisionId), progressive: true, until: later },
+      steps(),
+      replaced,
+    );
+    const final = publishedValue(put.mock.calls.at(-1)?.[1]);
+    expect(final.totals.commits).toBe(1);
+    expect(
+      final.yearly?.find((day) => day.date === "2026-03-01")?.commits,
+    ).toBe(0);
+    expect(
+      replaced.mock.calls.filter(([, init]) =>
+        bodyText(init).includes("ProgressiveHistory"),
+      ),
+    ).toHaveLength(13);
+  });
+
+  it("publishes the complete public month before gated older pages and benchmarks/resumes the same long-history fixture", async () => {
+    const window = activityWindow(new Date(until));
+    const year = activityWindow(new Date(until), 365);
+    const repos = [
+      repository,
+      { ...repository, id: 3, full_name: "owner/second" },
+    ];
+    const histories = new Map(
+      repos.map((repo, repositoryIndex) => [
+        repo.id,
+        year.dates
+          .flatMap((date, day) =>
+            Array.from({ length: 20 }, (_, index) => ({
+              ...commit(
+                repositoryIndex * 100_000 + day * 20 + index + 1,
+                `${date}T00:00:00.000Z`,
+              ),
+              author:
+                index < 10
+                  ? { user: { login: "SHAZHOU-WW" }, email: "" }
+                  : index < 15
+                    ? { user: null, email: "AUTHOR@EXAMPLE.TEST" }
+                    : { user: { login: "someone-else" }, email: "" },
+            })),
+          )
+          .reverse(),
+      ]),
+    );
+    let releaseOlder!: () => void;
+    let enteredOlder!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseOlder = resolve;
+    });
+    const entered = new Promise<void>((resolve) => {
+      enteredOlder = resolve;
+    });
+    const successful = new Set<string>();
+    let blockOlder = true;
+    let failAnnualPage = false;
+    let requestCount = 0;
+    let historyCount = 0;
+    let repeated = 0;
+    const request = vi
+      .fn<typeof fetch>()
+      .mockImplementation(async (input, init) => {
+        requestCount += 1;
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        const url = input instanceof Request ? input.url : input.toString();
+        if (url.endsWith("/users/owner")) return Response.json(owner);
+        if (url.includes("/orgs/owner/repos")) return Response.json(repos);
+        if (url.includes("/repos/")) {
+          const found = repos.find((repo) =>
+            url.endsWith(`/repos/${repo.full_name}`),
+          );
+          if (!found) throw new Error("Unexpected repository lookup");
+          return Response.json(found);
+        }
+        const body = JSON.parse(bodyText(init)) as {
+          query: string;
+          variables: Record<string, string | null>;
+        };
+        if (body.query.includes("ProgressiveAccess"))
+          return Response.json({
+            data: Object.fromEntries(
+              repos.map((repo, index) => [
+                `r${index}`,
+                {
+                  databaseId: repo.id,
+                  isPrivate: false,
+                  nameWithOwner: repo.full_name,
+                },
+              ]),
+            ),
+          });
+        if (body.query.includes("MetadataBatch"))
+          return Response.json({
+            data: Object.fromEntries(
+              repos.map((repo, index) => [`r${index}`, metadata(sha(1), repo)]),
+            ),
+          });
+        if (body.query.includes("Metadata")) {
+          const repo = repos.find((repo) =>
+            repo.full_name.endsWith(`/${body.variables.name}`),
+          )!;
+          return Response.json({
+            data: { repository: metadata(sha(1), repo) },
+          });
+        }
+        const repo = repos.find((repo) =>
+          repo.full_name.endsWith(`/${body.variables.name}`),
+        )!;
+        const since = body.variables.since;
+        const cutoff = body.variables.until;
+        const older = !!since && since < window.since;
+        if (older && blockOlder) {
+          enteredOlder();
+          await gate;
+        }
+        if (older && failAnnualPage && body.variables.cursor) {
+          failAnnualPage = false;
+          throw new GitHubError(503, null, "/fixture-unavailable", null);
+        }
+        historyCount += 1;
+        const key = `${repo.id}:${since}:${cutoff}:${body.variables.cursor}`;
+        if (successful.has(key)) repeated += 1;
+        successful.add(key);
+        const nodes = histories
+          .get(repo.id)!
+          .filter(
+            (commit) =>
+              (!since || commit.committedDate >= since) &&
+              (!cutoff || commit.committedDate <= cutoff),
+          );
+        const offset = Number(body.variables.cursor ?? 0);
+        return Response.json({
+          data: {
+            repository: {
+              isPrivate: false,
+              databaseId: repo.id,
+              object: {
+                history: {
+                  nodes: nodes.slice(offset, offset + 100),
+                  pageInfo: {
+                    hasNextPage: offset + 100 < nodes.length,
+                    endCursor: String(offset + 100),
+                  },
+                },
+              },
+            },
+          },
+        });
+      });
+    const baseline = await setup();
+    const baselineStarted = performance.now();
+    blockOlder = false;
+    await runCollection(
+      baseline.env,
+      params(baseline.revisionId),
+      steps(),
+      request,
+    );
+    const baselineMs = performance.now() - baselineStarted;
+    const baselineRequests = requestCount;
+    const baselineHistory = historyCount;
+    const baselineSnapshot = publishedValue(
+      baseline.put.mock.calls.at(-1)?.[1],
+    );
+    requestCount = 0;
+    historyCount = 0;
+    repeated = 0;
+    successful.clear();
+    blockOlder = true;
+    const progressive = await setup();
+    const firstStarted = performance.now();
+    const firstRun = { ...params(progressive.revisionId), progressive: true };
+    const running = runCollection(progressive.env, firstRun, steps(), request);
+    await entered;
+    const firstReadyMs = performance.now() - firstStarted;
+    const firstRequests = requestCount;
+    const firstHistory = historyCount;
+    const month = publishedValue(progressive.put.mock.calls.at(-1)?.[1]);
+    expect(month.totals.commits).toBe(900);
+    expect(month.repositories).toHaveLength(2);
+    expect(month.yearly).toHaveLength(30);
+    expect(month.daily).toEqual(baselineSnapshot.daily);
+    expect(progressive.put).toHaveBeenCalledOnce();
+    releaseOlder();
+    await running;
+    const completeMs = performance.now() - firstStarted;
+    const completeRequests = requestCount;
+    const completeHistory = historyCount;
+    const full = publishedValue(progressive.put.mock.calls.at(-1)?.[1]);
+    expect(full.yearly).toEqual(baselineSnapshot.yearly);
+    expect(full.rolling).toEqual(baselineSnapshot.rolling);
+    expect(firstReadyMs).toBeLessThan(completeMs);
+    expect(firstHistory).toBeLessThan(baselineHistory);
+
+    // Interrupt a different owner/config cache after one successful older page.
+    blockOlder = false;
+    failAnnualPage = true;
+    successful.clear();
+    repeated = 0;
+    const interrupted = await setup();
+    const interruptedRun = {
+      ...params(interrupted.revisionId),
+      progressive: true,
+    };
+    const completed = new Set<string>();
+    let checkpointLost = false;
+    const replaySteps: CollectionSteps = {
+      do: async (name, callback) => {
+        if (completed.has(name)) return;
+        await callback();
+        if (
+          !checkpointLost &&
+          name === "progressive year 0 repository 0 page 0"
+        ) {
+          checkpointLost = true;
+          throw new Error("fixture-checkpoint-stop");
+        }
+        completed.add(name);
+      },
+    };
+    await expect(
+      runCollection(interrupted.env, interruptedRun, replaySteps, request),
+    ).rejects.toThrow("fixture-checkpoint-stop");
+    const ready = publishedValue(interrupted.put.mock.calls.at(-1)?.[1]);
+    expect(ready.totals.commits).toBe(900);
+    const beforeResume = historyCount;
+    await expect(
+      runCollection(interrupted.env, interruptedRun, replaySteps, request),
+    ).rejects.toThrow("fixture-unavailable");
+    await runCollection(interrupted.env, interruptedRun, replaySteps, request);
+    const resumeHistory = historyCount - beforeResume;
+    expect(repeated).toBe(0);
+    const beforeRefresh = historyCount;
+    await runCollection(
+      interrupted.env,
+      { ...params(interrupted.revisionId), progressive: true },
+      steps(),
+      request,
+    );
+    expect(historyCount).toBe(beforeRefresh);
+    expect(repeated).toBe(0);
+    console.log(
+      "PROGRESSIVE_BENCHMARK",
+      JSON.stringify({
+        fixture: "2 repositories × 365 Beijing days × 20 commits; 1ms/request",
+        baselineMs,
+        baselineRequests,
+        baselineHistory,
+        firstReadyMs,
+        firstRequests,
+        firstHistory,
+        completeMs,
+        completeRequests,
+        completeHistory,
+        resumeHistory,
+        refreshHistory: 0,
+      }),
+    );
+  }, 30_000);
+
   it("finishes an old default Workflow payload after the personal public cutover without changing its checkpoints", async () => {
     const { env, store, revisionId, put } = await setup();
     const run = params(revisionId);

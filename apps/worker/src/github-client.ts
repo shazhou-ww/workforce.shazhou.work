@@ -51,7 +51,11 @@ function rejectionReason(message: unknown): string {
   return "Unrecognized GitHub rejection reason; consult GitHub endpoint permissions.";
 }
 
-function createGitHubRequest(token: string | null, request: typeof fetch) {
+function createGitHubRequest(
+  token: string | null,
+  request: typeof fetch,
+  redactPaths = false,
+) {
   async function github<T>(path: string, body?: object): Promise<T> {
     const send = () =>
       request(`https://api.github.com${path}`, {
@@ -73,7 +77,7 @@ function createGitHubRequest(token: string | null, request: typeof fetch) {
     ) {
       const waitMs = 1000 * 2 ** (retry - 1);
       console.warn(
-        `GitHub ${path}: HTTP ${response.status}; retry ${retry}/2 in ${waitMs}ms.`,
+        `GitHub ${redactPaths ? "private request" : path}: HTTP ${response.status}; retry ${retry}/2 in ${waitMs}ms.`,
       );
       await response.body?.cancel();
       await delay(waitMs);
@@ -107,7 +111,13 @@ function createGitHubRequest(token: string | null, request: typeof fetch) {
       if (permissions && /^[a-z_ =,;]+$/.test(permissions)) {
         details += ` Required permissions: ${permissions}.`;
       }
-      throw new GitHubError(response.status, retryAt, path, reset, details);
+      throw new GitHubError(
+        response.status,
+        retryAt,
+        redactPaths ? "private request" : path,
+        reset,
+        details,
+      );
     }
     return response.json<T>();
   }
@@ -121,11 +131,12 @@ export function createPublicGitHubClient(request: typeof fetch = fetch) {
 export function createGitHubClient(
   token: string,
   request: typeof fetch = fetch,
+  redactPaths = false,
 ) {
   if (!token.trim()) {
     throw new Error("GH_TOKEN is required to collect GitHub activity.");
   }
-  const github = createGitHubRequest(token, request);
+  const github = createGitHubRequest(token, request, redactPaths);
   async function graphql<T>(query: string, variables: object): Promise<T> {
     const result = await github<{
       data?: T;

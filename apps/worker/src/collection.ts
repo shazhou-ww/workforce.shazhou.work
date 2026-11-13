@@ -1,5 +1,6 @@
 import { createEmailHasher } from "./collection-config.js";
 import { collectPrivateRepositories } from "./private-repositories.js";
+import { collectPublicProgressively } from "./public-progressive-collection.js";
 import {
   readAccount,
   readMetadata,
@@ -37,6 +38,7 @@ export interface CollectionParams {
   readonly until: string;
   readonly userId?: string;
   readonly privateGeneration?: string;
+  readonly progressive?: boolean;
 }
 
 export interface CollectionSteps {
@@ -85,6 +87,7 @@ export async function runCollection(
     } finally {
       if (!response) requests.networkErrors += 1;
       else if (!response.ok) requests.httpErrors += 1;
+      const durationMs = performance.now() - start;
       console.info({
         event: "collection.github_request",
         runId: params.runId,
@@ -92,7 +95,7 @@ export async function runCollection(
         api,
         authenticated: new Headers(init?.headers).has("authorization"),
         status: response?.status ?? null,
-        durationMs: performance.now() - start,
+        durationMs,
         rateLimit: {
           limit: rateLimitHeader(response, "x-ratelimit-limit"),
           remaining: rateLimitHeader(response, "x-ratelimit-remaining"),
@@ -100,6 +103,24 @@ export async function runCollection(
           reset: rateLimitHeader(response, "x-ratelimit-reset"),
         },
       });
+      if (currentStep === null && metrics) {
+        const id = crypto.randomUUID();
+        await metrics.recordAttempt(params.runId, {
+          id,
+          step: `progressive request ${id}`,
+          phase:
+            typeof init?.body === "string" &&
+            init.body.includes("ProgressiveMonthBatch")
+              ? "history"
+              : "planning",
+          finishedAt: new Date().toISOString(),
+          activeMs: durationMs,
+          rest: api === "rest" ? 1 : 0,
+          graphql: api === "graphql" ? 1 : 0,
+          httpErrors: response && !response.ok ? 1 : 0,
+          networkErrors: response ? 0 : 1,
+        });
+      }
     }
   };
   const measuredSteps: CollectionSteps = {
@@ -108,13 +129,17 @@ export async function runCollection(
         currentStep = name;
         const phase: CollectionPhase = name.startsWith("metadata ")
           ? "metadata"
-          : name.includes("pin and plan")
+          : name.includes("pin and plan") ||
+              name.startsWith("progressive validate")
             ? "planning"
             : name.includes("aggregate")
               ? "aggregation"
-              : name.startsWith("repository ")
+              : name.startsWith("repository ") ||
+                  name.startsWith("progressive month ") ||
+                  name.startsWith("progressive year ")
                 ? "history"
-                : name.includes("publication") ||
+                : name.startsWith("publish ") ||
+                    name.includes("publication") ||
                     name.includes("snapshot") ||
                     name.includes("collection ready")
                   ? "publication"
@@ -212,12 +237,10 @@ async function collect(
     await assertPersonalActive(env, params.userId);
     await store.config(params.revisionId);
   }
-  const client = createGitHubClient(
-    params.userId
-      ? await githubCredential(env, params.userId)
-      : (env.GH_TOKEN ?? ""),
-    request,
-  );
+  const credential = params.userId
+    ? await githubCredential(env, params.userId)
+    : (env.GH_TOKEN ?? "");
+  const client = createGitHubClient(credential, request);
   const clientForRepository = (name: string) =>
     params.userId
       ? client
@@ -395,6 +418,21 @@ async function collect(
         },
       );
     }
+  }
+  // Runs created before progressive collection retain their original durable
+  // plan and checkpoints. New runs use bounded, independently reusable days.
+  if (params.progressive) {
+    await collectPublicProgressively(
+      env,
+      params,
+      steps,
+      store,
+      config,
+      clientForRepository,
+      hashEmail,
+      params.userId ? credential : null,
+    );
+    return;
   }
   await steps.do("cached repositories pin and plan manifest", async () => {
     await store.initializeReusePlan(params.runId);

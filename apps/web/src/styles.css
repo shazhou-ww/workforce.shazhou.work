@@ -1212,6 +1212,17 @@ h2 {
   outline: 1px solid var(--color-primary-strong);
   outline-offset: 2px;
 }
+.heatmap-day[data-level="unknown"] {
+  background: repeating-linear-gradient(
+    135deg,
+    transparent,
+    transparent 2px,
+    var(--color-border-strong) 2px,
+    var(--color-border-strong) 3px
+  );
+  border: 1px dashed var(--color-border-strong);
+}
+
 .heatmap-day[data-level="1"],
 .heatmap-legend i[data-level="1"] {
   background: color-mix(in srgb, var(--color-primary) 32%, #fff);

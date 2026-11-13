@@ -129,7 +129,7 @@ export function PersonalDashboard({
         setCollection((previous) =>
           previous ? { ...previous, latestRun: progress } : previous,
         );
-        if (progress.status === "published") {
+        if (progress.status === "published" || progress.status === "ready") {
           const response = await fetchJson<PersonalActivityResponse>(
             "/api/personal/activity",
             controller.signal,
@@ -139,7 +139,7 @@ export function PersonalDashboard({
             !response.snapshot ||
             Date.parse(response.snapshot.until) < Date.parse(progress.until)
           ) {
-            if (++publicationReads >= 12)
+            if (progress.status === "published" && ++publicationReads >= 12)
               throw new Error(
                 "任务已完成，但个人统计尚未同步，请稍后重试读取。",
               );
@@ -147,12 +147,15 @@ export function PersonalDashboard({
             setActivity(response);
             acceptSnapshot(response.snapshot);
             setError(null);
-            setNotice("采集完成，个人统计已更新。");
-            setCollection((previous) =>
-              previous ? { ...previous, activeRunId: null } : previous,
-            );
-            setRetry((value) => value + 1);
-            return;
+            if (progress.status === "published") {
+              setNotice("采集完成，个人统计已更新。");
+              setCollection((previous) =>
+                previous ? { ...previous, activeRunId: null } : previous,
+              );
+              setRetry((value) => value + 1);
+              return;
+            }
+            setNotice("近月已就绪，年度统计后台补齐中。");
           }
         } else if (
           ["failed", "blocked", "cancelled"].includes(progress.status)
@@ -256,7 +259,7 @@ export function PersonalDashboard({
     ? progress?.waiting
       ? "等待 GitHub 限流恢复，保留上次完整结果。"
       : progress?.status === "ready"
-        ? "正在发布完整个人统计…"
+        ? "近月统计已就绪，年度足迹后台补齐中。"
         : `个人采集中：${progress?.completedRepositories ?? 0} / ${progress?.totalRepositories ?? 0} 个仓库。`
     : progress?.status === "failed" ||
         progress?.status === "blocked" ||

@@ -1,14 +1,7 @@
 import {
-  activityTotals,
-  activityWindow,
-  combineDaily,
-  dailyActivity,
   isGitHubRepository,
-  type ActivitySnapshot,
-  type CommitActivity,
   type PrivateActivityResponse,
   type PrivateRepositorySelection,
-  type RepositoryActivity,
 } from "@shazhou-work/workforce-contracts";
 import type { Bindings } from "./env.js";
 import {
@@ -20,8 +13,12 @@ import {
   PersonalError,
 } from "./platform.js";
 import { createGitHubClient, GitHubError } from "./github-client.js";
-import { readMetadata, type HistoryPage } from "./collection-github.js";
+import { readMetadata, type RepositoryMetadata } from "./collection-github.js";
 import type { CollectionParams, CollectionSteps } from "./collection.js";
+import {
+  collectProgressively,
+  type RepositoryProgress,
+} from "./progressive-collection.js";
 
 interface PrivateState {
   generation: string;
@@ -31,6 +28,8 @@ interface PrivateState {
   last_refresh_at: string | null;
   snapshot_json: string | null;
   error_message: string | null;
+  progress_json: string | null;
+  pinned_json: string | null;
 }
 
 const accessMessage =
@@ -42,6 +41,17 @@ function accessError() {
     accessMessage,
     409,
   );
+}
+
+async function assertPrivateActive(env: Bindings, userId: string) {
+  await assertPersonalActive(env, userId);
+  if (
+    !(await database(env).one(
+      "SELECT id FROM personal_users WHERE id=? AND status='active'",
+      userId,
+    ))
+  )
+    throw new PersonalError("access_stopped", "个人资格已停用。", 403);
 }
 
 export async function privateState(env: Bindings, userId: string) {
@@ -62,6 +72,7 @@ async function authorized(
   bound = true,
 ) {
   const checkBinding = async () => {
+    await assertPrivateActive(env, userId);
     if (
       bound &&
       (await privateState(env, userId))?.generation !== state.generation
@@ -69,7 +80,7 @@ async function authorized(
       throw accessError();
   };
   await checkBinding();
-  await assertPersonalActive(env, userId);
+  await assertPrivateActive(env, userId);
   const connection = await githubConnection(env, userId);
   const identity = await database(env).one<{ provider_id: string }>(
     "SELECT provider_id FROM personal_identities WHERE user_id=? AND provider='github'",
@@ -80,7 +91,7 @@ async function authorized(
     credentialOwner(userId),
     state.credential,
   );
-  const client = createGitHubClient(token, request);
+  const client = createGitHubClient(token, request, true);
   try {
     const viewer = await client.github<{ id: number }>("/user");
     if (
@@ -117,7 +128,16 @@ async function authorized(
       await checkBinding();
     }
     return { client, login: connection.login, repositories };
-  } catch {
+  } catch (error) {
+    if (
+      error instanceof GitHubError &&
+      (error.retryAt !== null || error.status >= 500)
+    )
+      throw new PersonalError(
+        "private_temporarily_unavailable",
+        "GitHub 暂时不可用或请求受限，请稍后重试；近月结果保留。",
+        503,
+      );
     throw accessError();
   }
 }
@@ -169,6 +189,7 @@ export async function savePrivateRepositories(
     token ||
       (await decryptCredential(env, credentialOwner(userId), credential)),
     request,
+    true,
   );
   const repositories: PrivateRepositorySelection[] = [];
   try {
@@ -199,12 +220,14 @@ export async function savePrivateRepositories(
     last_refresh_at: null,
     snapshot_json: null,
     error_message: null,
+    progress_json: null,
+    pinned_json: null,
   };
   await authorized(env, userId, state, request, false);
   const saved = previous
     ? await database(env).one(
         `UPDATE personal_private_repositories SET generation=?,credential=?,repositories_json=?,
-         active_run_id=NULL,last_refresh_at=NULL,snapshot_json=NULL,error_message=NULL
+         active_run_id=NULL,last_refresh_at=NULL,snapshot_json=NULL,error_message=NULL,progress_json=NULL,pinned_json=NULL
          WHERE user_id=? AND generation=? RETURNING user_id`,
         state.generation,
         credential,
@@ -245,6 +268,7 @@ export async function readPrivateActivity(
   userId: string,
   request: typeof fetch = fetch,
 ): Promise<PrivateActivityResponse> {
+  await assertPrivateActive(env, userId);
   let state = await privateState(env, userId);
   if (!state)
     return {
@@ -281,8 +305,15 @@ export async function readPrivateActivity(
     }
   }
   await authorized(env, userId, state, request);
-  if ((await privateState(env, userId))?.generation !== state.generation)
-    throw accessError();
+  const fresh = await database(env).one<PrivateState>(
+    `SELECT * FROM personal_private_repositories WHERE user_id=? AND generation=?
+     AND EXISTS(SELECT 1 FROM personal_users WHERE id=? AND status='active')`,
+    userId,
+    state.generation,
+    userId,
+  );
+  if (!fresh) throw accessError();
+  state = fresh;
   return {
     connected: true,
     repositories: JSON.parse(
@@ -311,12 +342,14 @@ export async function startPrivateCollection(env: Bindings, userId: string) {
     `UPDATE personal_private_repositories SET active_run_id=?,last_refresh_at=?,error_message=NULL
      WHERE user_id=? AND generation=? AND active_run_id IS NULL
      AND (last_refresh_at IS NULL OR last_refresh_at<=?)
+     AND EXISTS(SELECT 1 FROM personal_users WHERE id=? AND status='active')
      AND (SELECT count(*) FROM personal_private_repositories WHERE active_run_id IS NOT NULL)<4 RETURNING user_id`,
     runId,
     now,
     userId,
     state.generation,
     new Date(Date.now() - 900_000).toISOString(),
+    userId,
   );
   if (!claimed)
     throw new PersonalError(
@@ -354,8 +387,8 @@ export async function failPrivateCollection(
 ) {
   await database(env)
     .statement(
-      "UPDATE personal_private_repositories SET active_run_id=NULL,snapshot_json=NULL,error_message=? WHERE user_id=? AND generation=? AND active_run_id=?",
-      "私有采集失败或授权已停止；结果已隐藏。检查权限后重新采集。",
+      "UPDATE personal_private_repositories SET active_run_id=NULL,error_message=? WHERE user_id=? AND generation=? AND active_run_id=?",
+      "年度补采未完成；已完成的近月结果保留。检查权限后重试以继续补齐。",
       userId,
       generation,
       runId,
@@ -383,14 +416,81 @@ export async function collectPrivateRepositories(
     state,
     request,
   );
-  const window = activityWindow(new Date(params.until));
-  const year = activityWindow(new Date(params.until), 365);
-  const results: RepositoryActivity[] = [];
-  const yearly = year.dates.map((date) => ({ date, commits: 0 }));
+  const assertOwner = async () => {
+    await assertPrivateActive(env, userId);
+    const current = await privateState(env, userId);
+    if (
+      !current ||
+      current.generation !== state.generation ||
+      current.active_run_id !== params.runId
+    )
+      throw accessError();
+  };
+  const guard = async () => {
+    await assertOwner();
+    await authorized(env, userId, state, request);
+    const after = await privateState(env, userId);
+    if (
+      !after ||
+      after.generation !== state.generation ||
+      after.active_run_id !== params.runId
+    )
+      throw accessError();
+  };
+  const progress = JSON.parse(state.progress_json ?? "{}") as Record<
+    string,
+    RepositoryProgress
+  >;
+  const pinned = state.pinned_json
+    ? (JSON.parse(state.pinned_json) as {
+        runId: string;
+        metadata: RepositoryMetadata[];
+      })
+    : null;
+  const selected = [];
   for (const [index, selection] of repositories.entries()) {
-    // Workflows checkpoint only non-sensitive step results. No shared commit,
-    // history, account, repository, KV or public snapshot cache is touched.
-    await steps.do(`private repository ${index}`, async () => {
+    await steps.do(`private repository ${index}`, guard);
+    await guard();
+    const metadata =
+      (pinned?.runId === params.runId ? pinned.metadata[index] : null) ??
+      (await readMetadata(
+        client,
+        { repository_id: selection.id, full_name: selection.name },
+        true,
+      ));
+    await guard();
+    selected.push({ id: selection.id, metadata, client });
+  }
+  await guard();
+  const pinnedSaved = await database(env).one(
+    `UPDATE personal_private_repositories SET pinned_json=? WHERE user_id=? AND generation=? AND active_run_id=?
+     AND EXISTS(SELECT 1 FROM personal_users WHERE id=? AND status='active') RETURNING user_id`,
+    JSON.stringify({
+      runId: params.runId,
+      metadata: selected.map((repo) => repo.metadata),
+    }),
+    userId,
+    state.generation,
+    params.runId,
+    userId,
+  );
+  if (!pinnedSaved) throw accessError();
+  await collectProgressively({
+    runId: params.runId,
+    until: params.until,
+    repositories: selected,
+    steps,
+    private: true,
+    assertOwner,
+    accounts: [
+      ...new Set(repositories.map((repo) => repo.name.split("/")[0]!)),
+    ],
+    authorFilter: { login, emailMatching: false },
+    authorize: guard,
+    matches: (commit) =>
+      commit.author?.user?.login.toLowerCase() === login.toLowerCase(),
+    load: async (id) => {
+      await assertOwner();
       const current = await privateState(env, userId);
       if (
         !current ||
@@ -398,121 +498,57 @@ export async function collectPrivateRepositories(
         current.active_run_id !== params.runId
       )
         throw accessError();
-      await authorized(env, userId, state, request);
-    });
-    const metadata = await readMetadata(
-      client,
-      { repository_id: selection.id, full_name: selection.name },
-      true,
-    );
-    const commits: CommitActivity[] = [];
-    let cursor: string | null = null;
-    let received = 0;
-    if (metadata.head) {
-      let hasNextPage = true;
-      while (hasNextPage) {
-        const [owner, name] = selection.name.split("/");
-        const page: {
-          repository: {
-            isPrivate: boolean;
-            databaseId: number;
-            object: { history: HistoryPage } | null;
-          } | null;
-        } = await client.graphql(
-          `query PrivateHistory($owner:String!,$name:String!,$head:GitObjectID!,$cursor:String,$since:GitTimestamp!,$until:GitTimestamp!){
-              repository(owner:$owner,name:$name){isPrivate databaseId object(oid:$head){... on Commit{
-                history(first:100,after:$cursor,since:$since,until:$until){
-                  nodes{oid committedDate additions deletions author{email user{login}}}
-                  pageInfo{hasNextPage endCursor}
-                }
-              }}}
-            }`,
-          {
-            owner,
-            name,
-            head: metadata.head,
-            cursor,
-            since: year.since,
-            until: year.until,
-          },
+      return (
+        (
+          JSON.parse(current.progress_json ?? "{}") as Record<
+            string,
+            RepositoryProgress
+          >
+        )[id] ?? null
+      );
+    },
+    save: async (id, value) => {
+      if ((value.received ?? 0) > 50_000)
+        throw new PersonalError(
+          "private_history_limit",
+          "单仓库本次采集超过 50000 次提交；已完成近月保留，请缩小范围后重试。",
+          422,
         );
-        if (
-          !page.repository?.isPrivate ||
-          page.repository.databaseId !== selection.id ||
-          !page.repository.object
-        )
-          throw accessError();
-        const history = page.repository.object.history;
-        received += history.nodes.length;
-        if (received > 50_000)
-          throw new PersonalError(
-            "private_history_limit",
-            "单仓库一年历史超过 50000 次提交，暂不支持。",
-            422,
-          );
-        for (const commit of history.nodes) {
-          if (commit.author?.user?.login.toLowerCase() === login.toLowerCase())
-            commits.push({
-              sha: commit.oid,
-              committedAt: commit.committedDate,
-              additions: commit.additions,
-              deletions: commit.deletions,
-            });
-        }
-        hasNextPage = history.pageInfo.hasNextPage;
-        if (hasNextPage) {
-          if (
-            !history.pageInfo.endCursor ||
-            history.pageInfo.endCursor === cursor
+      progress[id] = value;
+      const saved = await database(env).one(
+        `UPDATE personal_private_repositories SET progress_json=?
+         WHERE user_id=? AND generation=? AND active_run_id=?
+         AND EXISTS(SELECT 1 FROM personal_users WHERE id=? AND status='active') RETURNING user_id`,
+        JSON.stringify(progress),
+        userId,
+        state.generation,
+        params.runId,
+        userId,
+      );
+      if (!saved) throw accessError();
+    },
+    publish: async (snapshot, complete) => {
+      await guard();
+      const published = await database(env).one(
+        `UPDATE personal_private_repositories SET snapshot_json=?,error_message=NULL
+         WHERE user_id=? AND generation=? AND active_run_id=?
+         AND EXISTS(SELECT 1 FROM personal_users WHERE id=? AND status='active') RETURNING user_id`,
+        JSON.stringify({ ...snapshot, visibility: "private" }),
+        userId,
+        state.generation,
+        params.runId,
+        userId,
+      );
+      if (!published) throw accessError();
+      if (complete)
+        await database(env)
+          .statement(
+            "UPDATE personal_private_repositories SET active_run_id=NULL WHERE user_id=? AND generation=? AND active_run_id=?",
+            userId,
+            state.generation,
+            params.runId,
           )
-            throw accessError();
-          cursor = history.pageInfo.endCursor;
-          const fresh = await privateState(env, userId);
-          if (
-            !fresh ||
-            fresh.generation !== state.generation ||
-            fresh.active_run_id !== params.runId
-          )
-            throw accessError();
-        }
-      }
-    }
-    const daily = dailyActivity(commits, window);
-    results.push({ ...metadata, daily, ...activityTotals(daily) });
-    const counts = dailyActivity(commits, year);
-    yearly.forEach((day, offset) => {
-      day.commits += counts[offset]!.commits;
-    });
-  }
-  await authorized(env, userId, state, request);
-  const daily = combineDaily(results, window.dates);
-  const snapshot: ActivitySnapshot & { visibility: "private" } = {
-    visibility: "private",
-    version: 1,
-    accounts: [
-      ...new Set(repositories.map((repo) => repo.name.split("/")[0]!)),
-    ],
-    authorFilter: { login, emailMatching: false },
-    generatedAt: new Date().toISOString(),
-    since: window.since,
-    until: window.until,
-    timezone: "Asia/Shanghai",
-    days: 30,
-    daily,
-    totals: activityTotals(daily),
-    repositories: results,
-    yearly,
-  };
-  await database(env)
-    .statement(
-      `UPDATE personal_private_repositories SET snapshot_json=?,active_run_id=NULL,error_message=NULL
-     WHERE user_id=? AND generation=? AND active_run_id=?
-     AND EXISTS(SELECT 1 FROM personal_users WHERE id=? AND status='active')`,
-      JSON.stringify(snapshot),
-      userId,
-      state.generation,
-      params.runId,
-      userId,
-    )
-    .run();
+          .run();
+    },
+  });
 }

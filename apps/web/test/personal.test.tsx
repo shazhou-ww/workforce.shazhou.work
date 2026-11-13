@@ -1429,7 +1429,7 @@ describe("personal dashboard", () => {
     expect(container.textContent).toContain("当前结果来自上一配置");
   });
 
-  it("publishes only a complete personal snapshot, polling queued tasks and preserving prior results", async () => {
+  it("shows a complete month while annual history is still ready/backfilling and keeps polling to publication", async () => {
     vi.useFakeTimers();
     let runReads = 0;
     const request = vi.fn<typeof fetch>().mockImplementation((input, init) => {
@@ -1438,7 +1438,21 @@ describe("personal dashboard", () => {
       if (input === "/api/personal/activity")
         return Promise.resolve(
           Response.json({
-            snapshot,
+            snapshot:
+              runReads >= 2
+                ? {
+                    ...snapshot,
+                    accounts: ["ready-month-scope"],
+                    repositories: snapshot.repositories.map((repo) => ({
+                      ...repo,
+                      name: "ready-month-scope",
+                    })),
+                    yearly: snapshot.daily.map((day) => ({
+                      date: day.date,
+                      commits: day.commits,
+                    })),
+                  }
+                : snapshot,
             currentRevisionId: "revision-1",
             revisionId: "revision-1",
             stale: false,
@@ -1476,12 +1490,14 @@ describe("personal dashboard", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(15_000);
     });
-    expect(container.textContent).toContain("正在发布完整个人统计");
+    expect(container.textContent).toContain("年度足迹后台补齐中");
+    expect(container.textContent).toContain("ready-month-scope");
+    expect(container.querySelector('[data-level="unknown"]')).not.toBeNull();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(10_000);
     });
     expect(container.textContent).toContain("个人统计已更新");
-    expect(container.textContent).toContain("private-scope");
+    expect(container.textContent).toContain("ready-month-scope");
   });
 
   it("clears retained private results when authorization is revoked, but keeps full snapshots on transient refresh errors", async () => {

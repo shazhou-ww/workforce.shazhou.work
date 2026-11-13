@@ -201,7 +201,9 @@ export function PrivateRepositories({
             }}
           >
             {data.activeRunId
-              ? "私有仓库采集中…"
+              ? data.snapshot
+                ? "近月已就绪 · 年度后台补齐中…"
+                : "正在采集所有仓库近月统计…"
               : "单独刷新私有统计（15 分钟冷却）"}
           </button>
           {!configure && data.snapshot ? (

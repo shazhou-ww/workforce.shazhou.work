@@ -2,6 +2,8 @@ import { encode } from "@auth/core/jwt";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   activityWindow,
+  dailyActivity,
+  activityTotals,
   type PrivateActivityResponse,
 } from "@shazhou-work/workforce-contracts";
 import app from "../src/index.js";
@@ -19,6 +21,7 @@ import {
 } from "../src/private-repositories.js";
 import { publicSnapshotProjection } from "../src/public-activity.js";
 import { runCollection } from "../src/collection.js";
+import { parseConfig } from "../src/collection-config.js";
 import { TestD1 } from "./d1.js";
 
 const secret = "private-repository-test-secret-more-than-32-characters";
@@ -139,9 +142,10 @@ function github(
           },
         });
       page += 1;
-      expect(body.variables.since).toBe(
-        activityWindow(new Date(until), 365).since,
+      expect(Date.parse(String(body.variables.since))).toBeGreaterThanOrEqual(
+        Date.parse(activityWindow(new Date(until), 365).since),
       );
+      const inMonth = body.variables.until === until;
       return Response.json({
         data: {
           repository: {
@@ -149,27 +153,29 @@ function github(
             databaseId: 501,
             object: {
               history: {
-                nodes: [
-                  {
-                    oid: `${page}`,
-                    committedDate: until,
-                    additions: 3,
-                    deletions: 1,
-                    author: {
-                      user: { login: "primary" },
-                      email: "private@example.invalid",
-                    },
-                  },
-                  {
-                    oid: "other",
-                    committedDate: until,
-                    additions: 999,
-                    deletions: 999,
-                    author: { user: { login: "someone-else" }, email: "" },
-                  },
-                ],
+                nodes: inMonth
+                  ? [
+                      {
+                        oid: `${page}`,
+                        committedDate: until,
+                        additions: 3,
+                        deletions: 1,
+                        author: {
+                          user: { login: "primary" },
+                          email: "private@example.invalid",
+                        },
+                      },
+                      {
+                        oid: "other",
+                        committedDate: until,
+                        additions: 999,
+                        deletions: 999,
+                        author: { user: { login: "someone-else" }, email: "" },
+                      },
+                    ]
+                  : [],
                 pageInfo: {
-                  hasNextPage: page < (options.page ?? 1),
+                  hasNextPage: inMonth && page < (options.page ?? 1),
                   endCursor: options.repeatCursor ? null : `page-${page}`,
                 },
               },
@@ -239,6 +245,558 @@ async function run(
 afterEach(() => vi.unstubAllGlobals());
 
 describe("isolated private repository statistics", () => {
+  it.each(["complete", "replace", "metadata-replace"] as const)(
+    "publishes the personal-public month to owner/public projections before older pages and checks current OAuth ownership: %s",
+    async (mode) => {
+      const { env, userId, db, put } = await fixture();
+      const personal = new CollectionStore(db, userId);
+      const revisionId = await personal.saveConfig(
+        parseConfig({
+          enabled: false,
+          accounts: ["primary"],
+          authorLogins: ["primary"],
+          authorEmails: [],
+          repositoryMode: "explicit",
+          includeRepositories: ["primary/public"],
+          excludeRepositories: [],
+        }),
+      );
+      await personal
+        .statement(
+          "UPDATE personal_users SET public_slug='primary' WHERE id=?",
+          userId,
+        )
+        .run();
+      let release!: () => void;
+      let entered!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const blocked = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      const request = vi
+        .fn<typeof fetch>()
+        .mockImplementation(async (input, init): Promise<Response> => {
+          expect(new Headers(init?.headers).get("authorization")).toBe(
+            "Bearer oauth-token",
+          );
+          const url = input instanceof Request ? input.url : input.toString();
+          if (url.endsWith("/user")) return Response.json({ id: 101 });
+          if (url.endsWith("/repos/primary/public"))
+            return Response.json({
+              id: 601,
+              private: false,
+              full_name: "primary/public",
+              owner: { id: 101, login: "primary", type: "User" },
+            });
+          const body = JSON.parse(
+            typeof init?.body === "string" ? init.body : "{}",
+          ) as {
+            query: string;
+            variables: { until: string };
+          };
+          if (body.query.includes("ProgressiveAccess"))
+            return Response.json({
+              data: {
+                r0: {
+                  databaseId: 601,
+                  isPrivate: false,
+                  nameWithOwner: "primary/public",
+                },
+              },
+            });
+          if (mode === "metadata-replace" && body.query.includes("Metadata"))
+            await retainGitHub(
+              env,
+              userId,
+              {
+                id: "101",
+                login: "primary",
+                avatarUrl: "",
+              },
+              "replacement-oauth",
+              "read:user,user:email",
+              request,
+            );
+          if (body.query.includes("Metadata"))
+            return Response.json({
+              data: {
+                repository: {
+                  ...graphMetadata,
+                  databaseId: 601,
+                  isPrivate: false,
+                  nameWithOwner: "primary/public",
+                  url: "https://github.com/primary/public",
+                  defaultBranchRef: {
+                    name: "main",
+                    target: {
+                      ...graphMetadata.defaultBranchRef.target,
+                      url: `https://github.com/primary/public/commit/${"a".repeat(40)}`,
+                    },
+                  },
+                },
+              },
+            });
+          if (body.variables.until !== until) {
+            entered();
+            await gate;
+          }
+          return Response.json({
+            data: {
+              repository: {
+                isPrivate: false,
+                databaseId: 601,
+                object: {
+                  history: {
+                    nodes:
+                      body.variables.until === until
+                        ? [
+                            {
+                              oid: "a".repeat(40),
+                              committedDate: until,
+                              additions: 3,
+                              deletions: 1,
+                              author: { user: { login: "primary" }, email: "" },
+                            },
+                          ]
+                        : [],
+                    pageInfo: { hasNextPage: false, endCursor: null },
+                  },
+                },
+              },
+            },
+          });
+        });
+      vi.stubGlobal("fetch", request);
+      const runId = crypto.randomUUID();
+      const running = runCollection(
+        { ...env, COLLECTION_EMAIL_KEY: secret },
+        {
+          userId,
+          revisionId,
+          runId,
+          until,
+          progressive: true,
+        },
+        { do: async (_name, callback) => callback() },
+        request,
+      );
+      const outcome =
+        mode !== "complete"
+          ? expect(running).rejects.toThrow("credential changed")
+          : running;
+      if (mode === "metadata-replace") {
+        await outcome;
+        expect(
+          await personal.one(
+            "SELECT snapshot_json FROM personal_state WHERE id=? AND snapshot_json IS NOT NULL",
+            userId,
+          ),
+        ).toBeNull();
+        return;
+      }
+      await blocked;
+      const ownerResult = await call(
+        env,
+        userId,
+        "GET",
+        undefined,
+        "/api/personal/activity",
+      );
+      const ownerValue = await ownerResult.json<{
+        snapshot: NonNullable<PrivateActivityResponse["snapshot"]>;
+      }>();
+      expect(ownerValue.snapshot.totals.commits).toBe(1);
+      expect(ownerValue.snapshot.yearly?.at(-1)).toEqual({
+        date: "2026-11-13",
+        commits: 1,
+      });
+      const shared = await call(
+        env,
+        null,
+        "GET",
+        undefined,
+        "/api/profiles/primary",
+      );
+      const sharedValue = await shared.json<{
+        snapshot: NonNullable<PrivateActivityResponse["snapshot"]>;
+      }>();
+      expect(sharedValue.snapshot.yearly).toHaveLength(30);
+      expect(sharedValue.snapshot.repositories[0]?.name).toBe("primary/public");
+      const publicActivity = await app.request(
+        `${origin}/api/activity`,
+        {},
+        {
+          ...env,
+          PUBLIC_ACTIVITY_GITHUB_ID: "101",
+        },
+      );
+      expect(
+        (await publicActivity.json<{ yearly: unknown[] }>()).yearly,
+      ).toHaveLength(30);
+      expect(put).not.toHaveBeenCalled();
+      expect(await privateState(env, userId)).toBeNull();
+      if (mode === "replace")
+        await retainGitHub(
+          env,
+          userId,
+          {
+            id: "101",
+            login: "primary",
+            avatarUrl: "",
+          },
+          "replacement-oauth",
+          "read:user,user:email",
+          request,
+        );
+      release();
+      await outcome;
+      const snapshot = await personal.one<{ snapshot_json: string }>(
+        "SELECT snapshot_json FROM personal_state WHERE id=?",
+        userId,
+      );
+      const final = JSON.parse(snapshot!.snapshot_json) as NonNullable<
+        PrivateActivityResponse["snapshot"]
+      >;
+      expect(final.yearly).toHaveLength(mode === "complete" ? 365 : 30);
+    },
+  );
+
+  it("measures private month-first readiness against the former year-first algorithm on deterministic long history", async () => {
+    const { env, userId } = await fixture();
+    const year = activityWindow(new Date(until), 365);
+    const raw = year.dates
+      .flatMap((date, day) =>
+        Array.from({ length: 20 }, (_, index) => ({
+          oid: (day * 20 + index + 1).toString(16).padStart(40, "0"),
+          committedDate: `${date}T00:00:00.000Z`,
+          additions: 3,
+          deletions: 1,
+          author: {
+            user: { login: index < 10 ? "PRIMARY" : "other" },
+            email: "private@example.invalid",
+          },
+        })),
+      )
+      .reverse();
+    const base = github();
+    let requests = 0;
+    let pages = 0;
+    let block = false;
+    let entered!: () => void;
+    let release!: () => void;
+    const enteredOlder = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const request = vi
+      .fn<typeof fetch>()
+      .mockImplementation(async (input, init) => {
+        requests += 1;
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        const body =
+          typeof init?.body === "string"
+            ? (JSON.parse(init.body) as {
+                query: string;
+                variables: {
+                  since: string;
+                  until: string;
+                  cursor: string | null;
+                };
+              })
+            : null;
+        if (!body || body.query.includes("Metadata")) return base(input, init);
+        if (block && body.variables.since < window.since) {
+          entered();
+          await gate;
+        }
+        pages += 1;
+        const nodes = raw.filter(
+          (commit) =>
+            commit.committedDate >= body.variables.since &&
+            commit.committedDate <= body.variables.until,
+        );
+        const offset = Number(body.variables.cursor ?? 0);
+        return Response.json({
+          data: {
+            repository: {
+              isPrivate: true,
+              databaseId: 501,
+              object: {
+                history: {
+                  nodes: nodes.slice(offset, offset + 100),
+                  pageInfo: {
+                    hasNextPage: offset + 100 < nodes.length,
+                    endCursor: String(offset + 100),
+                  },
+                },
+              },
+            },
+          },
+        });
+      });
+    vi.stubGlobal("fetch", request);
+    await connect(env, userId);
+    requests = 0;
+    const baselineStart = performance.now();
+    // The former private collector authorized once, read metadata, then paged
+    // the whole year before deriving either the month or the annual snapshot.
+    await readPrivateActivity(env, userId);
+    await request("https://api.github.com/graphql", {
+      headers: { authorization: `Bearer ${pat}` },
+      body: JSON.stringify({ query: "Metadata", variables: {} }),
+    });
+    const baselineCommits = [];
+    for (let cursor: string | null = null; ;) {
+      const response: Response = await request(
+        "https://api.github.com/graphql",
+        {
+          headers: { authorization: `Bearer ${pat}` },
+          body: JSON.stringify({
+            query: "PrivateBaseline",
+            variables: { since: year.since, until, cursor },
+          }),
+        },
+      );
+      const page = await response.json<{
+        data: {
+          repository: {
+            object: {
+              history: {
+                nodes: typeof raw;
+                pageInfo: { hasNextPage: boolean; endCursor: string };
+              };
+            };
+          };
+        };
+      }>();
+      const history = page.data.repository.object.history;
+      for (const commit of history.nodes)
+        if (commit.author.user.login.toLowerCase() === "primary")
+          baselineCommits.push({
+            sha: commit.oid,
+            committedAt: commit.committedDate,
+            additions: commit.additions,
+            deletions: commit.deletions,
+          });
+      if (!history.pageInfo.hasNextPage) break;
+      cursor = history.pageInfo.endCursor;
+    }
+    const baselineTotals = activityTotals(
+      dailyActivity(baselineCommits, window),
+    );
+    const baselineMs = performance.now() - baselineStart;
+    const baselineRequests = requests;
+    const baselinePages = pages;
+    requests = 0;
+    pages = 0;
+    block = true;
+    const { runId } = await startPrivateCollection(env, userId);
+    const generation = (await privateState(env, userId))!.generation;
+    requests = 0;
+    const started = performance.now();
+    const running = run(env, userId, generation, runId);
+    await enteredOlder;
+    const firstReadyMs = performance.now() - started;
+    const firstRequests = requests;
+    const firstPages = pages;
+    const month = JSON.parse(
+      (await privateState(env, userId))!.snapshot_json!,
+    ) as NonNullable<PrivateActivityResponse["snapshot"]>;
+    expect(month.totals).toEqual(baselineTotals);
+    expect(month.totals.commits).toBe(300);
+    expect(month.yearly).toHaveLength(30);
+    release();
+    await running;
+    const completeMs = performance.now() - started;
+    const completeRequests = requests;
+    expect(
+      (await readPrivateActivity(env, userId)).snapshot?.yearly,
+    ).toHaveLength(365);
+    expect(firstReadyMs).toBeLessThan(completeMs);
+    console.log(
+      "PRIVATE_PROGRESSIVE_BENCHMARK",
+      JSON.stringify({
+        fixture: "1 repository × 365 Beijing days × 20 commits; 1ms/request",
+        baselineMs,
+        baselineRequests,
+        baselinePages,
+        firstReadyMs,
+        firstRequests,
+        firstPages,
+        completeMs,
+        completeRequests,
+        completePages: pages,
+      }),
+    );
+  }, 30_000);
+
+  it("keeps the all-repository month through backfill failure, resumes without refetching it, and hides it on revocation", async () => {
+    const { env, userId, store } = await fixture();
+    const base = github();
+    let release!: () => void;
+    let entered!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const blocked = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    let fail = true;
+    let monthPages = 0;
+    const request = vi
+      .fn<typeof fetch>()
+      .mockImplementation(async (input, init) => {
+        const url = input instanceof Request ? input.url : input.toString();
+        const body =
+          typeof init?.body === "string"
+            ? (JSON.parse(init.body) as {
+                query: string;
+                variables: Record<string, string>;
+              })
+            : null;
+        const second =
+          url.includes("/primary/second") || body?.variables.name === "second";
+        if (body?.query.includes("ProgressiveHistory")) {
+          if (body.variables.until === until) monthPages += 1;
+          else if (fail) {
+            entered();
+            await gate;
+            return new Response("fixture unavailable", { status: 500 });
+          }
+        }
+        const response = await base(
+          url.replace("/primary/second", "/primary/secret"),
+          body
+            ? {
+                ...init,
+                body: JSON.stringify({
+                  ...body,
+                  variables: { ...body.variables, name: "secret" },
+                }),
+              }
+            : init,
+        );
+        if (!second || url.includes("/commits?") || url.endsWith("/user"))
+          return response;
+        const value = await response.json<Record<string, unknown>>();
+        if (url.endsWith("/graphql")) {
+          const data = value.data as { repository: Record<string, unknown> };
+          data.repository.databaseId = 502;
+          if (body?.query.includes("Metadata"))
+            data.repository.nameWithOwner = "primary/second";
+        } else {
+          value.id = 502;
+          value.full_name = "primary/second";
+        }
+        return Response.json(value);
+      });
+    vi.stubGlobal("fetch", request);
+    await savePrivateRepositories(env, userId, {
+      token: pat,
+      repositories: ["primary/secret", "primary/second"],
+    });
+    const { runId } = await startPrivateCollection(env, userId);
+    const generation = (await privateState(env, userId))!.generation;
+    const running = run(env, userId, generation, runId);
+    // Install the rejection handler before opening the failing page.
+    const failure = expect(running).rejects.toMatchObject({ status: 500 });
+    await blocked;
+    const ready = await readPrivateActivity(env, userId);
+    expect(ready.snapshot?.totals.commits).toBe(2);
+    expect(ready.snapshot?.repositories).toHaveLength(2);
+    expect(ready.snapshot?.yearly).toHaveLength(30);
+    expect(ready.activeRunId).toBe(runId);
+    release();
+    await failure;
+    await failPrivateCollection(env, userId, generation, runId);
+    expect(
+      (await readPrivateActivity(env, userId)).snapshot?.totals.commits,
+    ).toBe(2);
+    fail = false;
+    await store
+      .statement(
+        "UPDATE personal_private_repositories SET last_refresh_at=NULL WHERE user_id=?",
+        userId,
+      )
+      .run();
+    const next = await startPrivateCollection(env, userId);
+    await run(env, userId, generation, next.runId);
+    expect(monthPages).toBe(2);
+    expect(
+      (await readPrivateActivity(env, userId)).snapshot?.yearly,
+    ).toHaveLength(365);
+    vi.stubGlobal("fetch", github({ denied: 401 }));
+    await expect(readPrivateActivity(env, userId)).rejects.toMatchObject({
+      code: "private_authorization_required",
+    });
+    expect((await privateState(env, userId))?.snapshot_json).not.toBeNull();
+  });
+
+  it("rejects stale same-generation runs and suspension even when progress is cached", async () => {
+    const { env, userId, store } = await fixture();
+    vi.stubGlobal("fetch", github());
+    await connect(env, userId);
+    const { runId } = await startPrivateCollection(env, userId);
+    const state = (await privateState(env, userId))!;
+    await store
+      .statement(
+        "UPDATE personal_private_repositories SET active_run_id=? WHERE user_id=?",
+        "newer-run",
+        userId,
+      )
+      .run();
+    await expect(
+      run(env, userId, state.generation, runId),
+    ).rejects.toMatchObject({ code: "private_authorization_required" });
+    await failPrivateCollection(env, userId, state.generation, runId);
+    expect((await privateState(env, userId))?.active_run_id).toBe("newer-run");
+    await store
+      .statement(
+        "UPDATE personal_users SET status='suspended' WHERE id=?",
+        userId,
+      )
+      .run();
+    await expect(readPrivateActivity(env, userId)).rejects.toMatchObject({
+      status: 403,
+    });
+    await expect(startPrivateCollection(env, userId)).rejects.toMatchObject({
+      status: 403,
+    });
+  });
+
+  it("preserves the private per-repository history budget across resumed intervals without publishing a partial month", async () => {
+    const { env, userId, store } = await fixture();
+    vi.stubGlobal("fetch", github());
+    await connect(env, userId);
+    const { runId } = await startPrivateCollection(env, userId);
+    const state = (await privateState(env, userId))!;
+    await store
+      .statement(
+        "UPDATE personal_private_repositories SET progress_json=? WHERE user_id=?",
+        JSON.stringify({
+          501: {
+            runId,
+            received: 49_999,
+            head: "a".repeat(40),
+            branch: "main",
+            days: {},
+          },
+        }),
+        userId,
+      )
+      .run();
+    await expect(
+      run(env, userId, state.generation, runId),
+    ).rejects.toMatchObject({
+      code: "private_history_limit",
+    });
+    expect((await privateState(env, userId))?.snapshot_json).toBeNull();
+  });
+
   it("saves encrypted selected credentials, verifies identity and contents, and never returns a token", async () => {
     const { env, userId } = await fixture();
     const request = github();
@@ -499,9 +1057,9 @@ describe("isolated private repository statistics", () => {
     vi.stubGlobal("fetch", github({ page: 2, repeatCursor: true }));
     const next = await startPrivateCollection(env, userId);
     const generation = (await privateState(env, userId))!.generation;
-    await expect(
-      run(env, userId, generation, next.runId),
-    ).rejects.toMatchObject({ code: "private_authorization_required" });
+    await expect(run(env, userId, generation, next.runId)).rejects.toThrow(
+      "Invalid history pagination cursor.",
+    );
     await failPrivateCollection(env, userId, generation, next.runId);
     expect((await privateState(env, userId))?.snapshot_json).toBeNull();
   });

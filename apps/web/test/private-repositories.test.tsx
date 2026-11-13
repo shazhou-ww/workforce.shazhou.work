@@ -247,7 +247,7 @@ describe("private repository settings and owner results", () => {
           String(url).endsWith("/collection") && init?.method === "POST",
       ),
     ).toBe(true);
-    expect(container.textContent).toContain("私有仓库采集中");
+    expect(container.textContent).toContain("正在采集所有仓库近月统计");
     request.mockResolvedValue(
       Response.json(
         { error: "invalid", code: "private_token_invalid" },

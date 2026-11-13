@@ -68,11 +68,9 @@ describe("durable collection orchestration", () => {
     await workflow.run({ ...event, payload }, step);
     expect(callback).toHaveBeenCalledOnce();
     expect(execute).toHaveBeenCalledOnce();
-    expect(execute.mock.calls[0]?.[0]).toBe(
-      "collect isolated private repositories",
-    );
+    expect(execute.mock.calls[0]?.[0]).toBe("private repository 0");
     expect(execute.mock.calls[0]?.[1]).toMatchObject({
-      timeout: "30 minutes",
+      timeout: "5 minutes",
       retries: { limit: 0 },
     });
   });
@@ -122,7 +120,10 @@ describe("durable collection orchestration", () => {
       "SELECT active_run_id,snapshot_json,error_message FROM personal_private_repositories WHERE user_id=?",
       userId,
     );
-    expect(state).toMatchObject({ active_run_id: null, snapshot_json: null });
+    expect(state).toMatchObject({
+      active_run_id: null,
+      snapshot_json: "old private snapshot",
+    });
     expect(state?.error_message).not.toContain("sensitive");
   });
 

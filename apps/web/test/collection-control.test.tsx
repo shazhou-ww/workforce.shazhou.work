@@ -416,7 +416,7 @@ describe("administrator collection controls", () => {
   it.each([
     ["queued", 0, "已排队"],
     ["collecting", 0, "正在发现仓库"],
-    ["ready", 2, "正在发布完整统计"],
+    ["ready", 2, "年度足迹后台补齐中"],
     ["failed", 2, "采集失败"],
     ["blocked", 0, "任务未执行"],
     ["cancelled", 0, "任务未执行"],
@@ -430,7 +430,10 @@ describe("administrator collection controls", () => {
         ),
       );
       expect(container.textContent).toContain(label);
-      expect(onSnapshot).not.toHaveBeenCalled();
+      if (status === "ready") {
+        expect(onSnapshot).toHaveBeenCalledWith(snapshot);
+        expect(container.textContent).not.toContain("采集完成");
+      } else expect(onSnapshot).not.toHaveBeenCalled();
     },
   );
 

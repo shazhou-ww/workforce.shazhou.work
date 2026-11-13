@@ -472,7 +472,7 @@ export async function startPersonalCollection(
   try {
     await env.COLLECTION.create({
       id: runId,
-      params: { runId, revisionId, until: now, userId },
+      params: { runId, revisionId, until: now, userId, progressive: true },
     });
   } catch {
     await store.failed(

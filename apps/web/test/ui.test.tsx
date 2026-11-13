@@ -430,7 +430,9 @@ describe("read-only activity dashboard", () => {
     const incomplete = renderToStaticMarkup(
       <YearlyHeatmap daily={yearly.slice(1)} until={window.until} />,
     );
-    expect(incomplete).toContain("年度统计尚未生成");
+    expect(incomplete).toContain("待补齐日期不是零提交");
+    expect(incomplete).toContain('data-level="unknown"');
+    expect(incomplete).toContain("· 待补齐");
   });
 
   it.each([

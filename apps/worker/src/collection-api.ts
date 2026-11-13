@@ -146,7 +146,12 @@ export async function startCollection(env: Bindings, scheduledAt?: number) {
   try {
     const instance = await env.COLLECTION.create({
       id: runId,
-      params: { runId, revisionId: active.revisionId, until },
+      params: {
+        runId,
+        revisionId: active.revisionId,
+        until,
+        progressive: true,
+      },
     });
     return { runId: instance.id };
   } catch (error) {

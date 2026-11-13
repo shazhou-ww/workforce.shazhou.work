@@ -177,8 +177,14 @@ export function CollectionControl({
         );
         if (controller.signal.aborted) return;
         setProgress(progress);
-        if (progress.status === "published") {
-          setNotice({ kind: "status", message: "采集完成，正在同步最新统计…" });
+        if (progress.status === "published" || progress.status === "ready") {
+          setNotice({
+            kind: "status",
+            message:
+              progress.status === "ready"
+                ? "近月统计正在同步，年度后台补齐中…"
+                : "采集完成，正在同步最新统计…",
+          });
           const snapshot = await fetchJson<ActivitySnapshot>(
             `/api/activity?collection=${encodeURIComponent(runId)}`,
             controller.signal,
@@ -191,10 +197,16 @@ export function CollectionControl({
           }
           if (actual >= expected) {
             onSnapshot(snapshot);
-            finish({ kind: "status", message: "采集完成，统计已更新。" });
-            return;
+            if (progress.status === "published") {
+              finish({ kind: "status", message: "采集完成，统计已更新。" });
+              return;
+            }
+            setNotice({
+              kind: "status",
+              message: "近月统计已就绪，年度足迹后台补齐中。",
+            });
           }
-          publicationReads += 1;
+          if (progress.status === "published") publicationReads += 1;
           if (publicationReads >= 12) {
             throw new Error("采集已完成，但快照尚未同步，请稍后刷新。");
           }
@@ -214,16 +226,13 @@ export function CollectionControl({
           });
           return;
         } else {
-          const message =
-            progress.status === "ready"
-              ? "仓库采集完成，正在发布完整统计…"
-              : progress.waiting
-                ? "等待任务继续，可能正在等待 GitHub 限流恢复。"
-                : progress.status === "queued"
-                  ? "采集任务已排队，继续显示上一份完整统计。"
-                  : progress.totalRepositories > 0
-                    ? `正在采集：已完成 ${progress.completedRepositories} / ${progress.totalRepositories} 个仓库。`
-                    : "正在发现仓库，继续显示上一份完整统计。";
+          const message = progress.waiting
+            ? "等待任务继续，可能正在等待 GitHub 限流恢复。"
+            : progress.status === "queued"
+              ? "采集任务已排队，继续显示上一份完整统计。"
+              : progress.totalRepositories > 0
+                ? `正在采集：已完成 ${progress.completedRepositories} / ${progress.totalRepositories} 个仓库。`
+                : "正在发现仓库，继续显示上一份完整统计。";
           setNotice({ kind: "status", message });
         }
         timer = setTimeout(

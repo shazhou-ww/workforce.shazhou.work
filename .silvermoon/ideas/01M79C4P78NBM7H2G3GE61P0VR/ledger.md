@@ -1,0 +1,29 @@
+# Ledger
+
+## Implementation
+
+### Implementation steps
+
+- [ ] **I-S01:** 确定最小授权与撤权规则
+- [ ] **I-S02:** 打通私有配置与隔离采集
+- [ ] **I-S03:** 隔离公开输出并补充验证
+
+### Implementation acceptance criteria
+
+- [ ] **I-AC01:** 授权选择与采集可验证
+- [ ] **I-AC02:** 数据与缓存边界可验证
+- [ ] **I-AC03:** 公开功能保持兼容
+
+## Deployment
+
+### Deployment steps
+
+- [ ] **D-S01:** 准备外部授权与受控验证
+- [ ] **D-S02:** 按生产流程发布
+- [ ] **D-S03:** 验证线上访问及撤权
+
+### Deployment acceptance criteria
+
+- [ ] **D-AC01:** 线上授权与统计可用
+- [ ] **D-AC02:** 线上私有边界有效
+- [ ] **D-AC03:** 发布与现有功能正常

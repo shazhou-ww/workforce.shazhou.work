@@ -1,2 +1,3 @@
 {"type":"setAlias","timestamp":"2026-11-13T04:44:03.234Z","payload":{"alias":"progressive-collection"}}
 {"type":"submitIdeal","timestamp":"2026-11-13T04:44:57.568Z","payload":{"idealRevision":"62c6368ef0f87ac10b2a646b74ea62a492265952"}}
+{"type":"acceptIdeal","timestamp":"2026-11-13T04:58:12.539Z","payload":{"idealRevision":"62c6368ef0f87ac10b2a646b74ea62a492265952"}}

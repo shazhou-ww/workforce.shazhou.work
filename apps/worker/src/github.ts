@@ -3,6 +3,7 @@ import {
   activityWindow,
   combineDaily,
   dailyActivity,
+  isGitHubLogin,
   rollingActivity,
   type ActivitySnapshot,
   type CommitActivity,
@@ -109,11 +110,11 @@ export async function collectActivity({
   }
   if (
     accounts.length === 0 ||
-    accounts.some((account) => !/^[a-z\d](?:[a-z\d-]{0,38})$/i.test(account))
+    accounts.some((account) => !isGitHubLogin(account))
   ) {
     throw new Error("Configure at least one valid GitHub account.");
   }
-  if (!/^[a-z\d](?:[a-z\d-]{0,38})$/i.test(authorLogin)) {
+  if (!isGitHubLogin(authorLogin)) {
     throw new Error("Configure a valid GITHUB_AUTHOR_LOGIN.");
   }
   const emails = new Set(

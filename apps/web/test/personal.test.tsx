@@ -305,14 +305,14 @@ describe("personal profile sharing", () => {
     ]);
   });
 });
-function configBackend(discoveryStatus = 200) {
+function configBackend(discoveryStatus = 200, github = access.github) {
   return vi.fn<typeof fetch>().mockImplementation((input, init) => {
     if (input === "/api/personal/config")
       return Promise.resolve(
         Response.json({
           config:
             init?.method === "PUT" ? JSON.parse(String(init.body)) : config,
-          github: access.github,
+          github,
           revisionId: "revision-1",
         }),
       );
@@ -325,7 +325,7 @@ function configBackend(discoveryStatus = 200) {
         Response.json(
           discoveryStatus === 200
             ? {
-                github: access.github,
+                github,
                 organizations: [
                   { id: 1, login: "selected-org", avatarUrl: "" },
                   { id: 2, login: "new-org", avatarUrl: "" },
@@ -349,6 +349,84 @@ function configBackend(discoveryStatus = 200) {
   });
 }
 describe("personal configuration", () => {
+  it("adds and saves managed-user scope while retaining the read-only primary author", async () => {
+    const managedAccess: PlatformAccessResponse = {
+      ...access,
+      github: {
+        id: "123",
+        login: "managed-user_microsoft",
+        avatarUrl: "",
+        connected: true,
+      },
+    };
+    const request = configBackend(200, managedAccess.github);
+    vi.stubGlobal("fetch", request);
+    const onSaved = vi.fn();
+    const { container } = await render(
+      <PersonalConfiguration
+        access={managedAccess}
+        onClose={vi.fn()}
+        onSaved={onSaved}
+      />,
+    );
+    for (const [name, value] of [
+      ["accounts", " Another-User_Microsoft "],
+      ["authorLogins", " Historical-User_Microsoft "],
+      ["includeRepositories", " Managed-User_Microsoft/Project "],
+      ["excludeRepositories", " Managed-User_Microsoft/Excluded "],
+    ] as const) {
+      const input = field(container, name);
+      await enter(input, value);
+      await act(async () => {
+        input.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+        );
+      });
+      expect(input.value).toBe("");
+    }
+    await click(container, "保存配置");
+    const saved = request.mock.calls.find(([, init]) => init?.method === "PUT");
+    expect(JSON.parse(String(saved?.[1]?.body))).toMatchObject({
+      accounts: ["selected-org", "octocat", "another-user_microsoft"],
+      authorLogins: [
+        "managed-user_microsoft",
+        "octocat",
+        "historical-user_microsoft",
+      ],
+      includeRepositories: [
+        "octocat/project",
+        "managed-user_microsoft/project",
+      ],
+      excludeRepositories: ["managed-user_microsoft/excluded"],
+    });
+    expect(onSaved).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    ["account", "a".repeat(40)],
+    ["account", "user--name"],
+    ["repository", `managed-user_microsoft/${"a".repeat(101)}`],
+    ["repository", "managed-user_microsoft/project/extra"],
+  ] as const)(
+    "rejects invalid %s scope before adding %s",
+    async (kind, input) => {
+      const onChange = vi.fn();
+      const { container } = await render(
+        <ScopeList
+          label="范围"
+          kind={kind}
+          values={[]}
+          input={input}
+          onInput={vi.fn()}
+          onChange={onChange}
+        />,
+      );
+      await click(container, "添加");
+      expect(onChange).not.toHaveBeenCalled();
+      expect(container.querySelector("[role=alert]")).not.toBeNull();
+    },
+  );
+
   it("uses a native modal, keeps primary identity readonly, preserves selected scopes after discovery failures and saves on the previous page", async () => {
     const request = configBackend(403);
     vi.stubGlobal("fetch", request);

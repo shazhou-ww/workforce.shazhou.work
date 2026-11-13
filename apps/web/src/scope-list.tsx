@@ -1,4 +1,8 @@
 import { useId, useState } from "react";
+import {
+  isGitHubLogin,
+  isGitHubRepository,
+} from "@shazhou-work/workforce-contracts";
 
 export function normalizeScopeValue(value: string) {
   return value.trim().toLowerCase();
@@ -27,13 +31,12 @@ export function ScopeList({
   const [error, setError] = useState<string | null>(null);
   const add = () => {
     const value = normalizeScopeValue(input);
-    const account = "[a-z0-9](?:[a-z0-9-]{0,38})";
     const valid =
       kind === "repository"
-        ? new RegExp(`^${account}/[a-z0-9_.-]+$`).test(value)
+        ? isGitHubRepository(value)
         : kind === "email"
           ? /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
-          : new RegExp(`^${account}$`).test(value);
+          : isGitHubLogin(value);
     if (!valid) {
       setError(
         kind === "repository"

@@ -73,6 +73,36 @@ function response(body: unknown, status = 200) {
 }
 
 describe("public GitHub collector", () => {
+  it("collects managed-user owners and matches their author login", async () => {
+    const login = "managed-user_microsoft";
+    const request = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(response([{ ...repository, owner: { login } }]))
+      .mockResolvedValueOnce(
+        response(
+          graph({
+            name: `${login}/project`,
+            nodes: [
+              {
+                ...ownCommit,
+                author: { email: "author@example.invalid", user: { login } },
+              },
+            ],
+          }),
+        ),
+      );
+    const result = await collectActivity({
+      accounts: [login],
+      authorLogin: login,
+      token: "token",
+      now,
+      request,
+    });
+    expect(result.totals.commits).toBe(1);
+    expect(result.repositories[0]?.name).toBe(`${login}/project`);
+    expect(request.mock.calls[0]?.[0]).toContain(`/users/${login}/repos?`);
+  });
+
   it("requests a full year for offline collection but preserves the 30-day dashboard window", async () => {
     const warmup = {
       ...ownCommit,

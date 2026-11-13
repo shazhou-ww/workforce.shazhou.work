@@ -1,4 +1,8 @@
-import { personalRepositoryLimit } from "@shazhou-work/workforce-contracts";
+import {
+  isGitHubLogin,
+  isGitHubRepository,
+  personalRepositoryLimit,
+} from "@shazhou-work/workforce-contracts";
 
 export interface CollectionConfig {
   readonly enabled: boolean;
@@ -12,8 +16,6 @@ export interface CollectionConfig {
 
 export class CollectionInputError extends Error {}
 
-const loginPattern = /^[a-z\d](?:[a-z\d-]{0,38})$/i;
-const repositoryPattern = /^[a-z\d][a-z\d-]{0,38}\/[a-z\d_.-]{1,100}$/i;
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export function parseConfig(value: unknown): CollectionConfig {
@@ -35,7 +37,11 @@ export function parseConfig(value: unknown): CollectionConfig {
   if (Object.keys(object).some((key) => !fields.includes(key))) {
     throw new CollectionInputError("Unknown collection configuration field.");
   }
-  function list(field: string, pattern: RegExp, limit = 100): string[] {
+  function list(
+    field: string,
+    validate: (value: string) => boolean,
+    limit = 100,
+  ): string[] {
     const input = object[field];
     if (!Array.isArray(input) || input.length > limit) {
       throw new CollectionInputError(
@@ -48,7 +54,7 @@ export function parseConfig(value: unknown): CollectionConfig {
       if (
         typeof entry !== "string" ||
         entry.length > 320 ||
-        !pattern.test(entry.trim())
+        !validate(entry.trim())
       ) {
         throw new CollectionInputError(`Invalid ${field} value.`);
       }
@@ -68,17 +74,17 @@ export function parseConfig(value: unknown): CollectionConfig {
   const config: CollectionConfig = {
     enabled: object.enabled,
     repositoryMode: object.repositoryMode,
-    accounts: list("accounts", loginPattern),
-    authorLogins: list("authorLogins", loginPattern),
-    authorEmails: list("authorEmails", emailPattern),
+    accounts: list("accounts", isGitHubLogin),
+    authorLogins: list("authorLogins", isGitHubLogin),
+    authorEmails: list("authorEmails", (email) => emailPattern.test(email)),
     includeRepositories: list(
       "includeRepositories",
-      repositoryPattern,
+      isGitHubRepository,
       personalRepositoryLimit,
     ),
     excludeRepositories: list(
       "excludeRepositories",
-      repositoryPattern,
+      isGitHubRepository,
       personalRepositoryLimit,
     ),
   };

@@ -274,10 +274,15 @@ into another user's space.
 Use the existing GitHub OAuth callback `/api/auth/callback/github`. GitHub login
 uses verified email addresses to claim invitations; organization discovery asks
 for `read:org` separately. Enterprise-managed GitHub usernames with an
-underscore suffix are accepted for sign-in; verified-email invitation matching
-still applies. Google identities require a trusted verified-email claim;
-unsupported verification claims cannot claim an invitation. Matching emails
-never automatically merge different provider identities.
+underscore suffix are accepted for sign-in, scope accounts, historical authors,
+repository owners and opt-in public profile addresses. These paths share
+username validation (at most 39 characters, alphanumeric segments separated by
+single hyphens, with an optional alphanumeric underscore suffix) and repository
+validation (`owner/name`, with a 1-100 character repository name).
+Verified-email invitation matching and public-repository-only collection still
+apply. Google identities require a trusted verified-email claim; unsupported
+verification claims cannot claim an invitation. Matching emails never
+automatically merge different provider identities.
 
 GitHub account authorization and organization approval are separate. An
 organization can still mark this OAuth app as restricted after the user grants
@@ -663,7 +668,10 @@ These Worker tokens apply only to legacy collection, not personal workspaces.
 Keep the existing `GH_TOKEN` for legacy user-owned repositories. Organization
 repository discovery, repository metadata, history, comparisons and commit
 details prefer the owner-specific Worker Secret `GH_TOKEN_<UPPERCASE_OWNER>`,
-replacing owner-name hyphens with underscores:
+replacing owner-name hyphens with underscores and original underscores with
+double underscores. For example, `managed-user_enterprise` uses
+`GH_TOKEN_MANAGED_USER__ENTERPRISE`, distinct from the override for
+`managed-user-enterprise`. Existing ordinary-account secret names are unchanged:
 
 ```powershell
 pnpm --filter @shazhou-work/workforce-worker exec wrangler secret put GH_TOKEN_SILVERMOON_WORK

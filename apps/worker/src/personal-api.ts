@@ -2,7 +2,11 @@ import { Auth } from "@auth/core";
 import { Hono, type Context } from "hono";
 import { setCookie } from "hono/cookie";
 import { html } from "hono/html";
-import { activityWindow } from "@shazhou-work/workforce-contracts";
+import {
+  activityWindow,
+  isGitHubLogin,
+  isGitHubRepository,
+} from "@shazhou-work/workforce-contracts";
 import type { JWT } from "@auth/core/jwt";
 import type {
   GitHubConnectResponse,
@@ -178,7 +182,7 @@ personalApi.put("/personal/profile", async (context) => {
       409,
     );
   const slug = github?.login.toLowerCase() ?? null;
-  if (slug && !/^[a-z\d](?:[a-z\d-]{0,37}[a-z\d])?$/i.test(slug))
+  if (slug && !isGitHubLogin(slug))
     throw new PersonalError(
       "profile_invalid",
       "Reconnect GitHub to update your profile address.",
@@ -206,7 +210,7 @@ personalApi.put("/personal/profile", async (context) => {
 
 personalApi.get("/profiles/:slug", async (context) => {
   const slug = context.req.param("slug");
-  const row = /^[a-z\d](?:[a-z\d-]{0,37}[a-z\d])?$/i.test(slug)
+  const row = isGitHubLogin(slug)
     ? await database(context.env).one<{
         public_slug: string;
         snapshot_json: string | null;
@@ -601,10 +605,9 @@ function publicRepo(repo: GitHubRepo): PublicRepository {
     );
   return { id: repo.id, fullName: repo.full_name, url: repo.html_url };
 }
-const repoPattern = /^[a-z\d][a-z\d-]{0,38}\/[a-z\d_.-]{1,100}$/i;
 personalApi.get("/personal/github/repository", async (context) => {
   const name = context.req.query("name")?.trim();
-  if (!name || !repoPattern.test(name))
+  if (!isGitHubRepository(name))
     throw new PersonalError(
       "repository_invalid",
       "Use a repository name in owner/name format.",

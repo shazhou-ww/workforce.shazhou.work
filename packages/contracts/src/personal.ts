@@ -3,6 +3,25 @@ import type { CollectionProgressResponse } from "./index.js";
 
 export const personalRepositoryLimit = 200;
 
+export function isGitHubLogin(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length <= 39 &&
+    /^[a-z\d]+(?:-[a-z\d]+)*(?:_[a-z\d]+)?$/i.test(value)
+  );
+}
+
+export function isGitHubRepository(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const [owner, name, extra] = value.split("/");
+  return (
+    isGitHubLogin(owner) &&
+    typeof name === "string" &&
+    /^[a-z\d_.-]{1,100}$/i.test(name) &&
+    extra === undefined
+  );
+}
+
 export interface PersonalConfig {
   readonly enabled: boolean;
   readonly accounts: readonly string[];

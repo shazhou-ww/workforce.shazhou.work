@@ -170,6 +170,13 @@ function githubFetch(
     login?: string;
   } = {},
 ) {
+  const login = options.login ?? "primary";
+  const repository = {
+    ...publicRepository,
+    full_name: `${login}/public`,
+    html_url: `https://github.com/${login}/public`,
+    owner: { ...publicRepository.owner, login },
+  };
   return vi.fn<typeof fetch>().mockImplementation((input) => {
     const url = input instanceof Request ? input.url : input.toString();
     if (options.status)
@@ -188,7 +195,7 @@ function githubFetch(
         Response.json(
           {
             id: options.id ?? 101,
-            login: options.login ?? "primary",
+            login,
             name: options.name ?? null,
             avatar_url: github.avatarUrl,
           },
@@ -202,8 +209,8 @@ function githubFetch(
           },
         ),
       );
-    if (url.endsWith("/users/primary"))
-      return Promise.resolve(Response.json(publicRepository.owner));
+    if (url.endsWith(`/users/${login}`))
+      return Promise.resolve(Response.json(repository.owner));
     if (url.includes("/user/orgs"))
       return Promise.resolve(
         Response.json([
@@ -215,9 +222,9 @@ function githubFetch(
         ]),
       );
     if (url.includes("/repos?"))
-      return Promise.resolve(Response.json([publicRepository]));
+      return Promise.resolve(Response.json([repository]));
     if (url.includes("/repos/"))
-      return Promise.resolve(Response.json(publicRepository));
+      return Promise.resolve(Response.json(repository));
     return Promise.resolve(Response.json({}, { status: 404 }));
   });
 }
@@ -228,6 +235,33 @@ afterEach(() => {
 });
 
 describe("personal access and invitations", () => {
+  it("publishes and revokes a managed user's underscore profile address", async () => {
+    const { env } = fixture();
+    await invite(env);
+    vi.stubGlobal("fetch", githubFetch({ login: "Managed-User_Microsoft" }));
+    const token = await jwtCallback(env);
+    if (typeof token?.platformUserId !== "string")
+      throw new Error("Managed-user invitation was not claimed.");
+    const cookie = await session(token.platformUserId);
+    const publish = await call(env, "/personal/profile", cookie, "PUT", {
+      enabled: true,
+    });
+    expect(publish.status).toBe(200);
+    expect(await publish.json()).toEqual({
+      publicPath: "/u/managed-user_microsoft",
+    });
+    const profile = await call(env, "/profiles/MANAGED-USER_MICROSOFT");
+    expect(profile.status).toBe(200);
+    expect(await profile.json()).toEqual({
+      login: "managed-user_microsoft",
+      snapshot: null,
+    });
+    await call(env, "/personal/profile", cookie, "PUT", { enabled: false });
+    expect((await call(env, "/profiles/managed-user_microsoft")).status).toBe(
+      404,
+    );
+  });
+
   it("publishes only an opted-in owner's snapshot and revokes anonymous access immediately", async () => {
     const { env, store } = fixture();
     const id = await user(env);
@@ -1120,6 +1154,40 @@ describe("OAuth identities and protected credentials", () => {
 });
 
 describe("personal configuration, discovery and isolation", () => {
+  it("saves managed-user accounts and authors and resolves their repository scope", async () => {
+    const { env } = fixture();
+    await invite(env);
+    vi.stubGlobal("fetch", githubFetch({ login: "managed-user_microsoft" }));
+    const token = await jwtCallback(env);
+    if (typeof token?.platformUserId !== "string")
+      throw new Error("Managed-user invitation was not claimed.");
+    const cookie = await session(token.platformUserId);
+    const saved = await call(env, "/personal/config", cookie, "PUT", {
+      ...config,
+      repositoryMode: "all_owned_public",
+      accounts: [" Managed-User_Microsoft "],
+      authorLogins: ["Historical-User_Microsoft"],
+      includeRepositories: [" Managed-User_Microsoft/Public "],
+    });
+    expect(saved.status).toBe(200);
+    expect(await saved.json()).toMatchObject({
+      config: {
+        accounts: ["managed-user_microsoft"],
+        authorLogins: ["historical-user_microsoft", "managed-user_microsoft"],
+        includeRepositories: ["managed-user_microsoft/public"],
+      },
+    });
+    const repository = await call(
+      env,
+      "/personal/github/repository?name=managed-user_microsoft%2Fpublic",
+      cookie,
+    );
+    expect(repository.status).toBe(200);
+    expect(await repository.json()).toMatchObject({
+      fullName: "managed-user_microsoft/public",
+    });
+  });
+
   it("saves verified normalized scope, immutable revisions, and retains old snapshots", async () => {
     const { env, store } = fixture();
     const id = await user(env);

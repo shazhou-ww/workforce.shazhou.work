@@ -1,4 +1,5 @@
 import { setTimeout as delay } from "node:timers/promises";
+import { isGitHubLogin } from "@shazhou-work/workforce-contracts";
 
 export interface GitHubCredentials {
   readonly GH_TOKEN?: string;
@@ -192,12 +193,12 @@ export function createOrganizationGitHubClient(
 }
 
 function ownerToken(credentials: GitHubCredentials, owner: string) {
-  if (!/^[a-z\d](?:[a-z\d-]{0,38})$/i.test(owner)) {
+  if (!isGitHubLogin(owner)) {
     throw new Error(
       "Configure a valid GitHub owner before selecting collection credentials.",
     );
   }
-  const key: `GH_TOKEN_${string}` = `GH_TOKEN_${owner.toUpperCase().replaceAll("-", "_")}`;
+  const key: `GH_TOKEN_${string}` = `GH_TOKEN_${owner.toUpperCase().replaceAll("_", "__").replaceAll("-", "_")}`;
   const token = credentials[key];
   if (token !== undefined && !token.trim()) {
     throw new Error(

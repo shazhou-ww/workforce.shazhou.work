@@ -2,7 +2,10 @@ import type {
   GitHubConnection,
   PlatformAccessResponse,
 } from "@shazhou-work/workforce-contracts";
-import { personalRepositoryLimit } from "@shazhou-work/workforce-contracts";
+import {
+  isGitHubLogin,
+  personalRepositoryLimit,
+} from "@shazhou-work/workforce-contracts";
 import { collectionAdminIds } from "./auth.js";
 import type { Bindings } from "./env.js";
 import { CollectionStore } from "./collection-store.js";
@@ -450,7 +453,7 @@ export async function githubIdentity(
   if (
     !Number.isSafeInteger(profile.id) ||
     profile.id <= 0 ||
-    !/^[a-z\d_-]+$/i.test(profile.login)
+    !isGitHubLogin(profile.login)
   )
     throw new PersonalError(
       "github_identity_failed",

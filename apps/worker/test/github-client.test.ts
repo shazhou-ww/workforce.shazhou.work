@@ -37,11 +37,38 @@ describe("owner-specific GitHub credentials", () => {
     ).not.toContain("unrelated-authentication-secret");
   });
 
-  it.each(["", "bad/name", "bad_name"])("rejects invalid owner %s", (owner) => {
-    expect(() =>
-      createOwnerGitHubClient({ GH_TOKEN: "default-test-token" }, owner),
-    ).toThrow("valid GitHub owner");
+  it("keeps managed-user overrides distinct from hyphenated owner overrides", async () => {
+    const request = vi
+      .fn<typeof fetch>()
+      .mockImplementation(() => Promise.resolve(Response.json({})));
+    const credentials = {
+      GH_TOKEN: "default-test-token",
+      GH_TOKEN_MANAGED_USER__ENTERPRISE: "managed-test-token",
+      GH_TOKEN_MANAGED_USER_ENTERPRISE: "ordinary-test-token",
+    };
+    for (const owner of [
+      "Managed-User_Enterprise",
+      "managed-user-enterprise",
+    ]) {
+      await createOwnerGitHubClient(credentials, owner, request).github(
+        "/user",
+      );
+    }
+    expect(
+      request.mock.calls.map(([, init]) =>
+        new Headers(init?.headers).get("Authorization"),
+      ),
+    ).toEqual(["Bearer managed-test-token", "Bearer ordinary-test-token"]);
   });
+
+  it.each(["", "bad/name", "bad name", "bad--name"])(
+    "rejects invalid owner %s",
+    (owner) => {
+      expect(() =>
+        createOwnerGitHubClient({ GH_TOKEN: "default-test-token" }, owner),
+      ).toThrow("valid GitHub owner");
+    },
+  );
 
   it("rejects empty overrides rather than masking a configuration error", () => {
     expect(() =>

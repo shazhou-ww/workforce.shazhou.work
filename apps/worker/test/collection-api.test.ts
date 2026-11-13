@@ -94,6 +94,23 @@ function setup() {
 }
 
 describe("private collection configuration", () => {
+  it("normalizes managed-user accounts, historical authors and included/excluded repository owners", () => {
+    expect(
+      parseConfig({
+        ...config,
+        accounts: [" Managed-User_Microsoft "],
+        authorLogins: ["Historical-User_Microsoft"],
+        includeRepositories: ["Managed-User_Microsoft/Project"],
+        excludeRepositories: ["Managed-User_Microsoft/Other"],
+      }),
+    ).toMatchObject({
+      accounts: ["managed-user_microsoft"],
+      authorLogins: ["historical-user_microsoft"],
+      includeRepositories: ["managed-user_microsoft/project"],
+      excludeRepositories: ["managed-user_microsoft/other"],
+    });
+  });
+
   it("requires an independent management credential and configured bindings", async () => {
     const { env, request } = setup();
     vi.spyOn(console, "warn").mockImplementation(() => {});

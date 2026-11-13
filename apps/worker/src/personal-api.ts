@@ -338,8 +338,7 @@ async function progress(store: CollectionStore, runId: string) {
   return {
     runId,
     status: run.status,
-    waiting:
-      run.status === "queued" || (run.status === "collecting" && wait !== null),
+    waiting: run.status === "collecting" && wait !== null,
     completedRepositories: counts?.completed ?? 0,
     totalRepositories: counts?.total ?? 0,
     until: run.until_at,

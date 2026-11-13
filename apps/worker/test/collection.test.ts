@@ -10,6 +10,7 @@ import type { Bindings } from "../src/env.js";
 import type { GitHubRepository, RawCommit } from "../src/collection-github.js";
 import { TestD1 } from "./d1.js";
 import { GitHubError } from "../src/github-client.js";
+import type { RepositoryProgress } from "../src/progressive-collection.js";
 import {
   activityWindow,
   rollingActivity,
@@ -320,6 +321,120 @@ function params(
 }
 
 describe("D1 collection", () => {
+  it.each([
+    "compatible",
+    "partial",
+    "login",
+    "email",
+    "scope",
+    "ahead",
+    "rewrite",
+    "branch",
+  ] as const)(
+    "reuses annual history only across compatible author revisions: %s",
+    async (change) => {
+      const { env, revisionId, put, store } = await setup();
+      const history = [
+        commit(1),
+        {
+          ...commit(2, "2026-03-01T00:00:00.000Z"),
+          author: {
+            email: "author@example.test",
+            user: { login: "email-only" },
+          },
+        },
+        {
+          ...commit(3, "2026-04-01T00:00:00.000Z"),
+          author: {
+            email: "login-only@example.test",
+            user: { login: "shazhou-ww" },
+          },
+        },
+      ];
+      await runCollection(
+        env,
+        { ...params(revisionId), progressive: true },
+        steps(),
+        github({ commits: history }),
+      );
+      const nextConfig = {
+        ...baseConfig,
+        repositoryMode: "explicit",
+        includeRepositories: ["owner/project"],
+        ...(change === "login" ? { authorLogins: ["other-author"] } : {}),
+        ...(change === "email" ? { authorEmails: ["other@example.test"] } : {}),
+      };
+      const nextRevision = await store.saveConfig(parseConfig(nextConfig));
+      if (change === "scope")
+        await store
+          .statement(
+            "UPDATE public_collection_progress SET scope_id='another-user'",
+          )
+          .run();
+      if (change === "partial") {
+        const row = await store.one<{ progress_json: string }>(
+          "SELECT progress_json FROM public_collection_progress WHERE revision_id=?",
+          revisionId,
+        );
+        const progress = JSON.parse(row!.progress_json) as RepositoryProgress;
+        progress.days = Object.fromEntries(
+          Object.entries(progress.days).slice(0, 60),
+        );
+        await store
+          .statement(
+            "INSERT INTO public_collection_progress(scope_id,revision_id,repository_id,progress_json) VALUES ('default',?,?,?)",
+            nextRevision,
+            repository.id,
+            JSON.stringify(progress),
+          )
+          .run();
+      }
+      const nextUntil = "2026-11-09T05:00:00.000Z";
+      const options = {
+        commits: [...history, commit(4, "2026-11-09T04:30:00.000Z")],
+        ...(change === "ahead" || change === "rewrite"
+          ? { head: sha(4), comparisonShas: [sha(4)] }
+          : {}),
+        ...(change === "rewrite" ? { status: "diverged" } : {}),
+        ...(change === "branch" ? { branch: "other-branch" } : {}),
+      };
+      const request = github(options);
+      const before = put.mock.calls.length;
+      await runCollection(
+        env,
+        { ...params(nextRevision), progressive: true, until: nextUntil },
+        steps(),
+        request,
+      );
+      const result = publishedValue(put.mock.calls.at(-1)?.[1]);
+      expect(result.yearly).toHaveLength(365);
+      const pages = request.mock.calls.filter(([, init]) =>
+        bodyText(init).includes("ProgressiveHistory"),
+      );
+      if (["compatible", "partial", "ahead"].includes(change)) {
+        expect(put.mock.calls.length - before).toBe(1);
+        expect(pages).toHaveLength(1);
+        const body = JSON.parse(bodyText(pages[0]?.[1])) as {
+          variables: { since: string };
+        };
+        expect(body.variables.since).toBe("2026-11-08T16:00:00.000Z");
+      } else {
+        expect(pages.length).toBeGreaterThan(1);
+      }
+      const clean = await setup(nextConfig);
+      await runCollection(
+        clean.env,
+        { ...params(clean.revisionId), progressive: true, until: nextUntil },
+        steps(),
+        github(options),
+      );
+      const expected = publishedValue(clean.put.mock.calls.at(-1)?.[1]);
+      expect(result.yearly).toEqual(expected.yearly);
+      expect(result.daily).toEqual(expected.daily);
+      expect(result.rolling).toEqual(expected.rolling);
+    },
+  );
+
   it("completes progressive month/year snapshots for three owners before using linear scoped update checks", async () => {
     const repos = [
       repository,

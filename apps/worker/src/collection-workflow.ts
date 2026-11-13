@@ -112,57 +112,70 @@ export class ActivityCollection extends WorkflowEntrypoint<
       });
     } catch (error) {
       if (event.payload.privateGeneration && event.payload.userId) {
-        await failPrivateCollection(
-          this.env,
-          event.payload.userId,
-          event.payload.privateGeneration,
-          event.payload.runId,
-        );
+        const { userId, privateGeneration, runId } = event.payload;
+        await step.do("record private collection failure", {}, async () => {
+          await failPrivateCollection(
+            this.env,
+            userId,
+            privateGeneration,
+            runId,
+          );
+        });
         throw new NonRetryableError(
           "Private collection failed; authorization must be checked in settings.",
         );
       }
-      if (event.payload.userId)
-        console.error(
-          "Personal collection failed; previous complete snapshot retained.",
-        );
-      else
-        console.error(
-          "Activity collection failed; previous snapshot and publication lock retained.",
-          error,
-        );
       if (this.env.DB) {
-        const store = new CollectionStore(this.env.DB, event.payload.userId);
-        await store.failed(
-          event.payload.runId,
-          event.payload.userId && error instanceof Error
-            ? safePersonalFailure(error)
-            : "Collection failed. Inspect Workflow logs and retry this run.",
+        const db = this.env.DB;
+        // A canceled invocation can resume. Only a durable failure step may
+        // release ownership, and replay must retain the first failure reason.
+        const message = await step.do(
+          "record collection failure",
+          {},
+          async () => {
+            const store = new CollectionStore(db, event.payload.userId);
+            const message =
+              event.payload.userId && error instanceof Error
+                ? safePersonalFailure(error)
+                : "Collection failed. Inspect Workflow logs and retry this run.";
+            if (event.payload.userId)
+              console.error({
+                event: "collection.failed",
+                runId: event.payload.runId,
+                message,
+              });
+            else
+              console.error(
+                "Activity collection failed; previous snapshot and publication lock retained.",
+                error,
+              );
+            await store.batch([
+              store.statement(
+                "UPDATE collection_runs SET status=CASE WHEN status='ready' AND ?=0 THEN 'ready' ELSE 'failed' END,error_message=COALESCE(error_message,?) WHERE id=? AND status NOT IN ('published','cancelled','blocked') AND revision_id IN (SELECT id FROM config_revisions WHERE config_id=?)",
+                event.payload.progressive ? 1 : 0,
+                message,
+                event.payload.runId,
+                store.scopeId,
+              ),
+              ...(event.payload.userId
+                ? [
+                    store.statement(
+                      "UPDATE personal_state SET active_run_id=NULL WHERE id=? AND active_run_id=?",
+                      event.payload.userId,
+                      event.payload.runId,
+                    ),
+                  ]
+                : []),
+            ]);
+            const recorded = await store.one<{ error_message: string | null }>(
+              "SELECT r.error_message FROM collection_runs r JOIN config_revisions c ON c.id=r.revision_id WHERE r.id=? AND c.config_id=?",
+              event.payload.runId,
+              store.scopeId,
+            );
+            return recorded?.error_message ?? message;
+          },
         );
-        if (
-          event.payload.progressive &&
-          !(error instanceof PersonalError) &&
-          !(
-            error instanceof Error &&
-            (error.message.includes(githubReconnectFailure) ||
-              error.message.includes(githubRefreshFailure))
-          )
-        )
-          await store
-            .statement(
-              "UPDATE collection_runs SET status='failed',error_message=? WHERE id=? AND status NOT IN ('published','cancelled','blocked')",
-              "Annual backfill paused. Any complete recent-month snapshot is retained; retry to resume.",
-              event.payload.runId,
-            )
-            .run();
-        if (event.payload.userId)
-          await store
-            .statement(
-              "UPDATE personal_state SET active_run_id=NULL WHERE id=? AND active_run_id=?",
-              event.payload.userId,
-              event.payload.runId,
-            )
-            .run();
+        if (event.payload.userId) throw new Error(message, { cause: error });
       }
 
       function safePersonalFailure(error: Error): string {
@@ -183,6 +196,13 @@ export class ActivityCollection extends WorkflowEntrypoint<
           error.message.includes(`${personalRepositoryLimit} repository`)
         )
           return error.message;
+        if (error.message.includes("credential changed"))
+          return "GitHub connection changed during collection. Previous complete results and cached history are retained; retry with the current connection.";
+        if (
+          error.message.includes("publication lock") ||
+          error.message.includes("publication ownership")
+        )
+          return "Collection publication ownership changed. Previous complete results and cached history are retained; inspect Workflow status before retrying.";
         return "Collection failed or access was stopped. Previous complete results are retained; check repository visibility, narrow the scope, or retry after the refresh cooldown.";
       }
       throw error;

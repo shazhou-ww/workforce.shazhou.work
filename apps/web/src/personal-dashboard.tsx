@@ -256,11 +256,13 @@ export function PersonalDashboard({
   const cooling = remaining > 0;
   const progress = collection?.latestRun;
   const collectionNotice = activeRunId
-    ? progress?.waiting
-      ? "等待 GitHub 限流恢复，保留上次完整结果。"
-      : progress?.status === "ready"
-        ? "近月统计已就绪，年度足迹后台补齐中。"
-        : `个人采集中：${progress?.completedRepositories ?? 0} / ${progress?.totalRepositories ?? 0} 个仓库。`
+    ? progress?.status === "queued"
+      ? "个人采集已排队，等待任务启动。"
+      : progress?.waiting
+        ? "等待 GitHub 限流恢复，保留上次完整结果。"
+        : progress?.status === "ready"
+          ? "近月统计已就绪，年度足迹后台补齐中。"
+          : `个人采集中：${progress?.completedRepositories ?? 0} / ${progress?.totalRepositories ?? 0} 个仓库。`
     : progress?.status === "failed" ||
         progress?.status === "blocked" ||
         progress?.status === "cancelled"

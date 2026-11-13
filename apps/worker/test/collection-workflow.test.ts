@@ -337,7 +337,146 @@ describe("durable collection orchestration", () => {
       }),
     ).rejects.toMatchObject({ status: 503 });
   });
+
+  it("does not finalize or unlock a canceled invocation and resumes its ready run", async () => {
+    const { env, event, step, execute } = setup();
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const db = new TestD1();
+    databases.push(db);
+    const personalEnv = { ...env, DB: db, COLLECTION_ADMIN_GITHUB_IDS: "101" };
+    const userId = (await registerIdentity(personalEnv, "github", "101", []))!;
+    const store = new CollectionStore(db, userId);
+    const revisionId = await store.saveConfig(parseConfig(baseWorkflowConfig));
+    await store.begin("run", revisionId, event.payload.until, "key");
+    await store
+      .statement("UPDATE collection_runs SET status='ready' WHERE id='run'")
+      .run();
+    let suspended = true;
+    execute.mockImplementation(
+      async (
+        _name: string,
+        _options: unknown,
+        callback: () => Promise<unknown>,
+      ) => {
+        if (suspended) throw new Error("invocation disposed");
+        return callback();
+      },
+    );
+    vi.mocked(runCollection).mockImplementation(
+      async (_env, _params, steps) => {
+        await steps.do("annual page", async () => {
+          expect(await store.ownsRun("run")).toBe(true);
+          await store.published("run");
+        });
+      },
+    );
+    const workflow = new ActivityCollection(
+      {} as ExecutionContext,
+      personalEnv,
+    );
+    const personalEvent = {
+      ...event,
+      payload: { ...event.payload, revisionId, userId, progressive: true },
+    };
+    await expect(workflow.run(personalEvent, step)).rejects.toThrow(
+      "invocation disposed",
+    );
+    expect(await store.ownsRun("run")).toBe(true);
+    expect((await store.run("run")).status).toBe("ready");
+    expect(log).not.toHaveBeenCalled();
+    suspended = false;
+    await workflow.run(personalEvent, step);
+    expect((await store.run("run")).status).toBe("published");
+  });
+
+  it.each([false, true])(
+    "preserves the first failure without unlocking a newer run, lost checkpoint: %s",
+    async (lostCheckpoint) => {
+      const { env, event, step, execute } = setup();
+      const log = vi.spyOn(console, "error").mockImplementation(() => {});
+      const db = new TestD1();
+      databases.push(db);
+      const personalEnv = {
+        ...env,
+        DB: db,
+        COLLECTION_ADMIN_GITHUB_IDS: "101",
+      };
+      const userId = (await registerIdentity(
+        personalEnv,
+        "github",
+        "101",
+        [],
+      ))!;
+      const store = new CollectionStore(db, userId);
+      const revisionId = await store.saveConfig(
+        parseConfig(baseWorkflowConfig),
+      );
+      await store.begin("run", revisionId, event.payload.until, "key");
+      const completed = new Map<string, unknown>();
+      let interrupted = false;
+      execute.mockImplementation(
+        async (
+          name: string,
+          _options: unknown,
+          callback: () => Promise<unknown>,
+        ) => {
+          if (!completed.has(name)) {
+            const value = await callback();
+            if (lostCheckpoint && !interrupted) {
+              interrupted = true;
+              throw new Error("failure checkpoint interrupted");
+            }
+            completed.set(name, value);
+          }
+          return completed.get(name);
+        },
+      );
+      vi.mocked(runCollection).mockRejectedValueOnce(
+        new Error("Collection credential changed."),
+      );
+      vi.mocked(runCollection).mockRejectedValueOnce(
+        new Error("Collection no longer owns its publication lock."),
+      );
+      const workflow = new ActivityCollection(
+        {} as ExecutionContext,
+        personalEnv,
+      );
+      const personalEvent = {
+        ...event,
+        payload: { ...event.payload, revisionId, userId, progressive: true },
+      };
+      await expect(workflow.run(personalEvent, step)).rejects.toThrow(
+        lostCheckpoint
+          ? "failure checkpoint interrupted"
+          : "GitHub connection changed",
+      );
+      const first = await store.run("run");
+      expect(first.status).toBe("failed");
+      await store.begin("newer-run", revisionId, event.payload.until, "key");
+      await expect(workflow.run(personalEvent, step)).rejects.toThrow(
+        "GitHub connection changed",
+      );
+      expect(await store.run("run")).toEqual(first);
+      expect(
+        await store.one(
+          "SELECT active_run_id FROM personal_state WHERE id=?",
+          userId,
+        ),
+      ).toEqual({ active_run_id: "newer-run" });
+      expect(log).toHaveBeenCalledTimes(lostCheckpoint ? 2 : 1);
+    },
+  );
 });
+
+const baseWorkflowConfig = {
+  enabled: true,
+  accounts: ["owner"],
+  authorLogins: ["owner"],
+  authorEmails: [],
+  repositoryMode: "all_owned_public",
+  includeRepositories: [],
+  excludeRepositories: [],
+};
 
 describe("GitHub rate-limit signals", () => {
   it.each([

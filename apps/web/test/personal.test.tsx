@@ -1429,76 +1429,93 @@ describe("personal dashboard", () => {
     expect(container.textContent).toContain("当前结果来自上一配置");
   });
 
-  it("shows a complete month while annual history is still ready/backfilling and keeps polling to publication", async () => {
-    vi.useFakeTimers();
-    let runReads = 0;
-    const request = vi.fn<typeof fetch>().mockImplementation((input, init) => {
-      if (init?.method === "POST")
-        return Promise.resolve(Response.json({ runId: "run-1" }));
-      if (input === "/api/personal/activity")
-        return Promise.resolve(
-          Response.json({
-            snapshot:
-              runReads >= 2
-                ? {
-                    ...snapshot,
-                    accounts: ["ready-month-scope"],
-                    repositories: snapshot.repositories.map((repo) => ({
-                      ...repo,
-                      name: "ready-month-scope",
-                    })),
-                    yearly: snapshot.daily.map((day) => ({
-                      date: day.date,
-                      commits: day.commits,
-                    })),
-                  }
-                : snapshot,
-            currentRevisionId: "revision-1",
-            revisionId: "revision-1",
-            stale: false,
-          }),
-        );
-      if (String(input).endsWith("/run-1")) {
-        const status =
-          ++runReads < 2 ? "collecting" : runReads < 3 ? "ready" : "published";
-        return Promise.resolve(
-          Response.json({
-            runId: "run-1",
-            status,
-            waiting: runReads === 1,
-            completedRepositories: 1,
-            totalRepositories: 2,
-            until: snapshot.until,
-          }),
-        );
-      }
-      return Promise.resolve(
-        Response.json({
-          activeRunId: null,
-          latestRun: null,
-          nextRefreshAt: null,
-        }),
+  it.each(["queued", "collecting"] as const)(
+    "distinguishes %s from rate-limit waits and keeps polling through month readiness to publication",
+    async (initialStatus) => {
+      vi.useFakeTimers();
+      let runReads = 0;
+      const request = vi
+        .fn<typeof fetch>()
+        .mockImplementation((input, init) => {
+          if (init?.method === "POST")
+            return Promise.resolve(Response.json({ runId: "run-1" }));
+          if (input === "/api/personal/activity")
+            return Promise.resolve(
+              Response.json({
+                snapshot:
+                  runReads >= 2
+                    ? {
+                        ...snapshot,
+                        accounts: ["ready-month-scope"],
+                        repositories: snapshot.repositories.map((repo) => ({
+                          ...repo,
+                          name: "ready-month-scope",
+                        })),
+                        yearly: snapshot.daily.map((day) => ({
+                          date: day.date,
+                          commits: day.commits,
+                        })),
+                      }
+                    : snapshot,
+                currentRevisionId: "revision-1",
+                revisionId: "revision-1",
+                stale: false,
+              }),
+            );
+          if (String(input).endsWith("/run-1")) {
+            const status =
+              ++runReads < 2
+                ? initialStatus
+                : runReads < 3
+                  ? "ready"
+                  : "published";
+            return Promise.resolve(
+              Response.json({
+                runId: "run-1",
+                status,
+                waiting: runReads === 1,
+                completedRepositories: 1,
+                totalRepositories: 2,
+                until: snapshot.until,
+              }),
+            );
+          }
+          return Promise.resolve(
+            Response.json({
+              activeRunId: null,
+              latestRun: null,
+              nextRefreshAt: null,
+            }),
+          );
+        });
+      vi.stubGlobal("fetch", request);
+      const { container } = await render(
+        <PersonalDashboard
+          controls={null}
+          revision={0}
+          onConfigure={vi.fn()}
+        />,
       );
-    });
-    vi.stubGlobal("fetch", request);
-    const { container } = await render(
-      <PersonalDashboard controls={null} revision={0} onConfigure={vi.fn()} />,
-    );
-    expect(container.textContent).toContain("private-scope");
-    await click(container, "刷新我的统计");
-    expect(container.textContent).toContain("等待 GitHub 限流恢复");
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(15_000);
-    });
-    expect(container.textContent).toContain("年度足迹后台补齐中");
-    expect(container.textContent).toContain("ready-month-scope");
-    expect(container.querySelector('[data-level="unknown"]')).not.toBeNull();
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(10_000);
-    });
-    expect(container.textContent).toContain("个人统计已更新");
-    expect(container.textContent).toContain("ready-month-scope");
-  });
+      expect(container.textContent).toContain("private-scope");
+      await click(container, "刷新我的统计");
+      expect(container.textContent).toContain(
+        initialStatus === "queued" ? "个人采集已排队" : "等待 GitHub 限流恢复",
+      );
+      if (initialStatus === "queued")
+        expect(container.textContent).not.toContain("等待 GitHub 限流恢复");
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15_000);
+      });
+      expect(container.textContent).toContain("年度足迹后台补齐中");
+      expect(container.textContent).toContain("ready-month-scope");
+      expect(container.querySelector('[data-level="unknown"]')).not.toBeNull();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000);
+      });
+      expect(container.textContent).toContain("个人统计已更新");
+      expect(container.textContent).toContain("ready-month-scope");
+    },
+  );
 
   it("clears retained private results when authorization is revoked, but keeps full snapshots on transient refresh errors", async () => {
     vi.useFakeTimers();

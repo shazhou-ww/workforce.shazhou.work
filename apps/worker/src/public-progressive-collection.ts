@@ -326,6 +326,41 @@ export async function collectPublicProgressively(
         initialized.add(id);
         const repo = repositories.find((repo) => repo.id === id);
         if (!repo) throw new Error("Collection repository is missing.");
+        const reusable = await store.one<{ progress_json: string }>(
+          `SELECT p.progress_json FROM public_collection_progress p
+           JOIN config_revisions c ON c.id=p.revision_id
+           WHERE p.scope_id=? AND c.config_id=? AND p.repository_id=? AND p.revision_id!=?
+           AND NOT EXISTS(
+             SELECT identity_type,normalized_value FROM config_identities WHERE revision_id=p.revision_id
+             EXCEPT SELECT identity_type,normalized_value FROM config_identities WHERE revision_id=?
+           )
+           AND NOT EXISTS(
+             SELECT identity_type,normalized_value FROM config_identities WHERE revision_id=?
+             EXCEPT SELECT identity_type,normalized_value FROM config_identities WHERE revision_id=p.revision_id
+           )
+           ORDER BY (json_extract(p.progress_json,'$.head') IS ?) DESC,
+             (SELECT count(*) FROM json_each(p.progress_json,'$.days')) DESC,
+             c.created_at DESC,p.revision_id LIMIT 1`,
+          store.scopeId,
+          store.scopeId,
+          id,
+          params.revisionId,
+          params.revisionId,
+          params.revisionId,
+          repo.metadata.head,
+        );
+        await assertOwner();
+        if (reusable) {
+          const previous = JSON.parse(
+            reusable.progress_json,
+          ) as RepositoryProgress;
+          if (!progress) progress = previous;
+          else if (
+            previous.head === progress.head &&
+            previous.branch === progress.branch
+          )
+            progress.days = { ...previous.days, ...progress.days };
+        }
         const today = activityWindow(new Date(params.until)).dates.at(-1)!;
         if (
           !progress ||

@@ -2160,7 +2160,7 @@ describe("scoped collection and migration safety", () => {
     }>();
     expect(state).toMatchObject({
       activeRunId: started!.runId,
-      latestRun: { status: "queued" },
+      latestRun: { status: "queued", waiting: false },
     });
     expect(
       (

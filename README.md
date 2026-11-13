@@ -99,6 +99,9 @@ repository list only, not the global chart or totals. The browser re-reads the
 snapshot every five minutes. Data older than three hours is visibly marked
 stale.
 
+Queued personal collections display a task-starting notice, not a GitHub
+rate-limit warning. The rate-limit notice requires a recorded active wait.
+
 Read-only browser requests retry transient network failures and HTTP
 500/502/503/504 responses at most twice, after one and two seconds.
 Authentication rejections and mutations are never retried automatically. If
@@ -277,9 +280,13 @@ payload继续使用原有历史算法，避免改变已保存的步骤含义。�
 可在年度完成前返回完整的近月快照；年度 `yearly`
 仅包含所有仓库均已完成的日期。未出现的日期是“待补齐”，不是零提交。采集控件在近月就绪后继续轮询；年度失败保留近月结果并允许恢复。小时滚动曲线还需要近月起点前一天，因此只在该天也补齐后出现，不能用不完整的 24 小时值冒充完整曲线。
 
-公开缓存按用户/配置 revision 隔离，私有缓存按用户/授权 generation 隔离，不相互复用。相同 head 的已完成日期和中断页游标可复用；跨刷新必须重新校验仓库访问权，当前未结束的日期按新截止时间重取。分支变化、force 个人公开任务仍有每次运行 50000 条历史接收预算；私有任务每仓库每次运行最多接收 50000 条，跨区间及同一运行重启不会重置计数。有效缓存复用不消耗历史接收预算。相同 head 的已完成日期和中断页游标可复用；跨刷新必须重新校验仓库访问权，当前未结束的日期按新截止时间重取。分支变化、force 公开采集会在所有 owner 的元数据就绪后才开始近月阶段，空范围也能完成。既有完整公开历史的 head/分支仍匹配时可直接生成新截止时间聚合，无需冷拉一年；完整年度只发布一次。公开访问校验和部分日刷新采用有界批量查询，legacy
-owner 令牌不跨 owner 混用。相同 head 的已完成日期和中断页游标可复用；跨刷新必须重新校验仓库访问权，当前未结束的日期按新截止时间重取。分支变化、force 个人公开任务仍有每次运行 50000 条历史接收预算；私有任务每仓库每次运行最多接收 50000 条，跨区间及同一运行重启不会重置计数。有效缓存复用不消耗历史接收预算。相同 head 的已完成日期和中断页游标可复用；跨刷新必须重新校验仓库访问权，当前未结束的日期按新截止时间重取。分支变化、force
-push 或无法确认祖先关系时保守重建；可完整验证的小型前进比较只保留早于新增提交最早日期的历史，回填日期的新增提交会使受影响日期失效。首次采集只需要一年历史，不再为当前年度图遍历整个仓库生命期。每个年度区间完成后发布进度；没有真实 PAT 的部署验证不能替代私有采集验收。
+公开缓存按用户/配置 revision 存储。只有同一用户、完全相同的规范化作者登录名和邮箱集合，才允许跨 revision 复用同一仓库的公开历史；只改变仓库范围不会让保留的仓库从头补采。已有部分年度进度也可补入旧 revision 的完整日期，但仅合并相同 head/分支的数据。作者筛选改变或不同用户之间不复用。私有缓存仍按用户/授权 generation 隔离，不与公开缓存互用。
+
+相同 head 的已完成日期和中断页游标可复用；跨刷新必须重新校验仓库身份、公开可见性与当前访问权，当前未结束的日期按新截止时间重取。分支变化、force
+push 或无法确认祖先关系时保守重建；可完整验证的小型前进比较只保留早于新增提交最早日期的历史，回填日期的新增提交会使受影响日期失效。公开采集会在所有 owner 的元数据就绪后才开始近月阶段，空范围也能完成。既有完整公开历史仍有效时无需冷拉一年；完整年度只发布一次。公开访问校验和部分日刷新采用有界批量查询，legacy
+owner 令牌不跨 owner 混用。
+
+个人公开任务每次运行最多接收 50000 条历史；私有任务每仓库每次运行最多接收 50000 条，跨区间及同一运行重启不会重置计数。有效缓存复用不消耗历史接收预算。首次采集只需要一年历史，不遍历整个仓库生命期；每个年度区间完成后发布进度。Workflow 失败记录及个人任务锁释放在持久化步骤内完成，运行时取消某次执行不会直接释放可恢复任务的锁；失败步骤重放保留首个已记录的安全错误原因，且不能释放新任务的锁。没有真实 PAT 的部署验证不能替代私有采集验收。
 
 Administrators are bootstrapped by stable numeric GitHub IDs in
 `COLLECTION_ADMIN_GITHUB_IDS`. They manage invitations using verified login

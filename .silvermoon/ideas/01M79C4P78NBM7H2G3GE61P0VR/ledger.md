@@ -19,7 +19,7 @@
 ### Deployment steps
 
 - [ ] **D-S01:** 准备外部授权与受控验证
-- [ ] **D-S02:** 按生产流程发布
+- [x] **D-S02:** 按生产流程发布
 - [ ] **D-S03:** 验证线上访问及撤权
 
 ### Deployment acceptance criteria

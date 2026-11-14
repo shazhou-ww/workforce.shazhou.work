@@ -361,11 +361,10 @@ export async function collectPublicProgressively(
           )
             progress.days = { ...previous.days, ...progress.days };
         }
-        const today = activityWindow(new Date(params.until)).dates.at(-1)!;
         if (
           !progress ||
           progress.head !== repo.metadata.head ||
-          progress.days[today]?.until !== params.until
+          progress.branch !== repo.metadata.defaultBranch
         ) {
           const legacy = await seedLegacyHistory(
             store,

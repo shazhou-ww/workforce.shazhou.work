@@ -612,9 +612,10 @@ describe("D1 collection", () => {
       ),
     ).toHaveLength(0);
 
-    // The progressive cache must remain efficient even without the old complete
-    // history source, including future-dated commits becoming eligible later.
-    db.sqlite.exec("DELETE FROM repository_sync_state");
+    const legacyReads: string[] = [];
+    db.onStatement = (sql) => {
+      if (sql.includes("FROM history_commits")) legacyReads.push(sql);
+    };
     const warm = github({ repos, commits: history });
     before = put.mock.calls.length;
     const warmStarted = performance.now();
@@ -624,6 +625,8 @@ describe("D1 collection", () => {
       until: "2026-11-09T06:00:00.000Z",
     };
     await runCollection(env, warmRun, steps(), warm);
+    db.onStatement = undefined;
+    expect(legacyReads).toHaveLength(0);
     const warmMs = performance.now() - warmStarted;
     const snapshot = publishedValue(put.mock.calls.at(-1)?.[1]);
     expect(snapshot.totals.commits).toBe(140);

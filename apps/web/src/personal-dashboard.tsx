@@ -262,7 +262,11 @@ export function PersonalDashboard({
         ? "等待 GitHub 限流恢复，保留上次完整结果。"
         : progress?.status === "ready"
           ? "近月统计已就绪，年度足迹后台补齐中。"
-          : `个人采集中：${progress?.completedRepositories ?? 0} / ${progress?.totalRepositories ?? 0} 个仓库。`
+          : progress?.validatedRepositories !== undefined &&
+              progress.totalRepositories > 0 &&
+              progress.validatedRepositories < progress.totalRepositories
+            ? `正在校验仓库缓存：${progress.validatedRepositories} / ${progress.totalRepositories} 个仓库。`
+            : `个人采集中：${progress?.completedRepositories ?? 0} / ${progress?.totalRepositories ?? 0} 个仓库。`
     : progress?.status === "failed" ||
         progress?.status === "blocked" ||
         progress?.status === "cancelled"

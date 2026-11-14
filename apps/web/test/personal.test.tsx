@@ -1334,6 +1334,44 @@ it("shows list-read failure with retry, keeping revoked invitations distinct fro
 });
 
 describe("personal dashboard", () => {
+  it("shows cache validation progress instead of an unchanged zero completed count", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockImplementation((input) =>
+        Promise.resolve(
+          Response.json(
+            input === "/api/personal/activity"
+              ? {
+                  snapshot: null,
+                  currentRevisionId: "revision-1",
+                  revisionId: null,
+                  stale: false,
+                }
+              : String(input).endsWith("/run-1")
+                ? {
+                    runId: "run-1",
+                    status: "collecting",
+                    waiting: false,
+                    validatedRepositories: 41,
+                    completedRepositories: 0,
+                    totalRepositories: 70,
+                  }
+                : {
+                    activeRunId: "run-1",
+                    latestRun: null,
+                    nextRefreshAt: null,
+                  },
+          ),
+        ),
+      ),
+    );
+    const { container } = await render(
+      <PersonalDashboard controls={null} revision={0} onConfigure={vi.fn()} />,
+    );
+    expect(container.textContent).toContain("正在校验仓库缓存：41 / 70");
+    expect(container.textContent).not.toContain("个人采集中：0 / 70");
+  });
+
   it("updates cooldowns by minute, switches to seconds, and unlocks refresh at expiry", async () => {
     vi.useFakeTimers();
     const now = new Date("2026-11-12T12:00:00Z");

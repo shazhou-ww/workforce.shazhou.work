@@ -335,11 +335,21 @@ async function progress(store: CollectionStore, runId: string) {
     "SELECT name FROM collection_waits WHERE run_id=? AND finished_at IS NULL LIMIT 1",
     runId,
   );
+  const validated = await store.one<{ count: number }>(
+    `SELECT count(*) AS count FROM public_collection_progress p
+     JOIN run_repositories r ON r.repository_id=p.repository_id AND r.run_id=?
+     WHERE p.scope_id=? AND p.revision_id=? AND json_extract(p.progress_json,'$.runId')=?`,
+    runId,
+    store.scopeId,
+    run.revision_id,
+    runId,
+  );
   return {
     runId,
     status: run.status,
     waiting: run.status === "collecting" && wait !== null,
     completedRepositories: counts?.completed ?? 0,
+    validatedRepositories: validated?.count ?? 0,
     totalRepositories: counts?.total ?? 0,
     until: run.until_at,
     error: error?.error_message ?? null,

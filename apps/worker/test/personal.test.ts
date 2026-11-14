@@ -2135,6 +2135,46 @@ describe("personal configuration, discovery and isolation", () => {
 });
 
 describe("scoped collection and migration safety", () => {
+  it("reports validated caches for the current run and scope before repositories complete", async () => {
+    const { env } = fixture();
+    const first = await user(env);
+    const second = await user(env, "202", "second@example.invalid");
+    const store = new CollectionStore(env.DB!, first);
+    const revisionId = await store.saveConfig(config);
+    const started = await startPersonalCollection(env, first);
+    if (!started) throw new Error("Personal run was not started.");
+    await store.discover(started.runId, null, [
+      publicRepository,
+      { ...publicRepository, id: 502, full_name: "primary/other" },
+    ]);
+    for (const [scope, id, runId] of [
+      [first, 501, started.runId],
+      [first, 502, "previous-run"],
+      [second, 502, started.runId],
+    ] as const) {
+      await store
+        .statement(
+          "INSERT INTO public_collection_progress VALUES (?,?,?,?)",
+          scope,
+          revisionId,
+          id,
+          JSON.stringify({ runId }),
+        )
+        .run();
+    }
+    const response = await call(
+      env,
+      `/personal/collection/${started.runId}`,
+      await session(first),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      validatedRepositories: 1,
+      completedRepositories: 0,
+      totalRepositories: 2,
+    });
+  });
+
   it("reserves per-user runs atomically, enforces cooldown/global capacity, and releases failed workflow reservations", async () => {
     const { env, create } = fixture();
     const first = await user(env);

@@ -62,6 +62,7 @@ export interface CollectionProgressResponse {
     | "cancelled";
   readonly waiting: boolean;
   readonly completedRepositories: number;
+  readonly validatedRepositories?: number;
   readonly totalRepositories: number;
   readonly until: string;
   readonly performance?: CollectionPerformance | null;
